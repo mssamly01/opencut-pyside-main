@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.domain.project import Project, build_demo_project
+from app.domain.project import Project, build_demo_project, build_empty_project
 from app.services.media_service import MediaService
 from app.services.project_service import ProjectService
 from PySide6.QtCore import QObject, Signal
@@ -37,6 +37,11 @@ class ProjectController(QObject):
 
     def active_project_path(self) -> str | None:
         return self._active_project_path
+
+    def load_empty_project(self) -> Project:
+        project = build_empty_project()
+        self.set_active_project(project, project_path=None)
+        return project
 
     def load_demo_project(self) -> Project:
         project = build_demo_project()

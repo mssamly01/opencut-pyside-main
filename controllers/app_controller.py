@@ -77,7 +77,7 @@ class AppController(QObject):
         self.timeline_controller.timeline_edited.connect(self._on_timeline_edited_for_autosave)
         self.timeline_controller.timeline_edited.connect(self.mark_dirty)
         self.timeline_controller.timeline_changed.connect(self.playback_controller.refresh_preview_frame)
-        self.load_demo_project()
+        self.load_empty_project()
         self._autosave_periodic_timer.start()
 
     def has_recoverable_autosave(self) -> bool:
@@ -109,6 +109,10 @@ class AppController(QObject):
         self.autosave_service.discard_snapshot()
         self.mark_clean()
         return True
+
+    def load_empty_project(self) -> None:
+        self.project_controller.load_empty_project()
+        self.mark_clean()
 
     def load_demo_project(self) -> None:
         self.project_controller.load_demo_project()

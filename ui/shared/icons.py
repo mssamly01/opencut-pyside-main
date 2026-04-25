@@ -48,6 +48,16 @@ _SVG_TEMPLATES: dict[str, str] = {
     "text": """<path d="M3 4h10M6 4v9M10 4v9" stroke="{color}" stroke-width="1.4" stroke-linecap="round"/>""",
     "magnet": """<path d="M3 3v6a5 5 0 0 0 10 0V3h-3v6a2 2 0 0 1-4 0V3z" fill="none" stroke="{color}" stroke-width="1.4"/><rect x="3" y="2" width="3" height="2" fill="{color}"/><rect x="10" y="2" width="3" height="2" fill="{color}"/>""",
     "logs": """<rect x="3" y="2" width="10" height="12" fill="none" stroke="{color}" stroke-width="1.4"/><path d="M5 5h6M5 8h6M5 11h4" stroke="{color}" stroke-width="1.2" stroke-linecap="round"/>""",
+    # Sprint 9: left-rail category icons
+    "rail-media": """<rect x="2" y="3" width="12" height="9" rx="1.2" fill="none" stroke="{color}" stroke-width="1.4"/><path d="M6 5.5l4 2.5-4 2.5z" fill="{color}"/>""",
+    "rail-audio": """<path d="M3 6v4h2l3 2.5v-9L5 6zM10.5 5a3.5 3.5 0 0 1 0 6M12 3a6 6 0 0 1 0 10" fill="none" stroke="{color}" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>""",
+    "rail-text": """<path d="M3 4h10M5 4v9M11 4v9" fill="none" stroke="{color}" stroke-width="1.6" stroke-linecap="round"/>""",
+    "rail-sticker": """<circle cx="8" cy="8" r="5.5" fill="none" stroke="{color}" stroke-width="1.4"/><circle cx="6.2" cy="7" r="0.8" fill="{color}"/><circle cx="9.8" cy="7" r="0.8" fill="{color}"/><path d="M5.5 10c0.7 1 1.6 1.5 2.5 1.5s1.8-0.5 2.5-1.5" fill="none" stroke="{color}" stroke-width="1.4" stroke-linecap="round"/>""",
+    "rail-effects": """<path d="M8 2l1.4 3.5L13 6l-2.7 2 0.7 3.5L8 9.7 4.7 11.5 5.4 8 2.7 6l3.5-0.5z" fill="none" stroke="{color}" stroke-width="1.3" stroke-linejoin="round"/>""",
+    "rail-transitions": """<rect x="2" y="4" width="5" height="8" fill="none" stroke="{color}" stroke-width="1.3"/><rect x="9" y="4" width="5" height="8" fill="none" stroke="{color}" stroke-width="1.3"/><path d="M7.2 8h1.6M6.8 6.5l1.7 1.5-1.7 1.5M9.2 6.5l-1.7 1.5 1.7 1.5" fill="none" stroke="{color}" stroke-width="1.2" stroke-linecap="round"/>""",
+    "rail-captions": """<rect x="2" y="4" width="12" height="8" rx="1.2" fill="none" stroke="{color}" stroke-width="1.4"/><path d="M5 8.2c-0.5-0.6-1-0.6-1.5 0M11 8.2c-0.5-0.6-1-0.6-1.5 0M5 10.2c-0.5-0.6-1-0.6-1.5 0M11 10.2c-0.5-0.6-1-0.6-1.5 0" fill="none" stroke="{color}" stroke-width="1.2" stroke-linecap="round"/>""",
+    "rail-filters": """<circle cx="6" cy="7" r="3.5" fill="none" stroke="{color}" stroke-width="1.4"/><circle cx="10" cy="9" r="3.5" fill="none" stroke="{color}" stroke-width="1.4"/>""",
+    "rail-adjust": """<path d="M4 3v5M4 11v2M8 3v2M8 8v5M12 3v7M12 13v0" fill="none" stroke="{color}" stroke-width="1.4" stroke-linecap="round"/><circle cx="4" cy="9.5" r="1.4" fill="none" stroke="{color}" stroke-width="1.4"/><circle cx="8" cy="6.5" r="1.4" fill="none" stroke="{color}" stroke-width="1.4"/><circle cx="12" cy="11.5" r="1.4" fill="none" stroke="{color}" stroke-width="1.4"/>""",
 }
 
 

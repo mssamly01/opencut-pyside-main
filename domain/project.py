@@ -22,6 +22,37 @@ class Project:
     version: str = "0.1.0"
 
 
+def build_empty_project() -> Project:
+    """Create an empty project scaffold with Text/Main/Media tracks."""
+    text_track = Track(
+        track_id="track_text_1",
+        name="Text 1",
+        track_type="text",
+        clips=[],
+    )
+    video_track = Track(
+        track_id="track_video_1",
+        name="Main",
+        track_type="video",
+        clips=[],
+    )
+    media_track = Track(
+        track_id="track_media_1",
+        name="Media",
+        track_type="audio",
+        clips=[],
+    )
+    return Project(
+        project_id="proj_untitled",
+        name="Untitled",
+        width=1920,
+        height=1080,
+        fps=30.0,
+        timeline=Timeline(tracks=[text_track, video_track, media_track]),
+        media_items=[],
+    )
+
+
 def build_demo_project() -> Project:
     text_track = Track(
         track_id="track_text_1",

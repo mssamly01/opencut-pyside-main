@@ -18,14 +18,15 @@ from PySide6.QtWidgets import (
     QDialog,
     QDockWidget,
     QFileDialog,
+    QFrame,
+    QHBoxLayout,
     QLabel,
     QMainWindow,
     QMenu,
     QMenuBar,
     QMessageBox,
-    QSizePolicy,
     QStatusBar,
-    QToolBar,
+    QToolButton,
     QWidget,
 )
 
@@ -35,7 +36,6 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._app_controller = app_controller
         self._export_action: QAction | None = None
-        self._snap_action: QAction | None = None
         self._dirty_label: QLabel | None = None
         self._timecode_label: QLabel | None = None
         self._project_info_label: QLabel | None = None
@@ -45,6 +45,7 @@ class MainWindow(QMainWindow):
         self._captions_toggle_action: QAction | None = None
         self._effects_toggle_action: QAction | None = None
         self._sticker_toggle_action: QAction | None = None
+        self._menu_bar_icon_strip: QWidget | None = None
 
         self.setWindowTitle("OpenCut PySide")
         self.resize(1440, 860)
@@ -119,6 +120,14 @@ class MainWindow(QMainWindow):
                 "Open Project...",
                 self._on_load_project_triggered,
                 shortcut=QKeySequence.StandardKey.Open,
+            )
+        )
+        file_menu.addAction(
+            self._make_action(
+                "file-open",
+                "Load Demo Project",
+                self._on_load_demo_project_triggered,
+                shortcut=QKeySequence("Ctrl+Shift+D"),
             )
         )
         file_menu.addAction(
@@ -278,84 +287,50 @@ class MainWindow(QMainWindow):
 
         clip_menu: QMenu = menu_bar.addMenu("&Clip")
         clip_menu.addAction(self._make_action("text", "Add Text", self._on_add_text_triggered, shortcut="Ctrl+Shift+T"))
+        self._build_menu_bar_icon_strip(menu_bar)
+
+    def _build_menu_bar_icon_strip(self, menu_bar: QMenuBar) -> None:
+        actions = [
+            self._sticker_toggle_action,
+            self._effects_toggle_action,
+            self._captions_toggle_action,
+            self._export_action,
+        ]
+        visible_actions = [action for action in actions if action is not None]
+        if not visible_actions:
+            return
+
+        container = QWidget(menu_bar)
+        container.setObjectName("menu_bar_icon_strip")
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(8, 1, 8, 1)
+        layout.setSpacing(0)
+
+        for index, action in enumerate(visible_actions):
+            button = QToolButton(container)
+            button.setDefaultAction(action)
+            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+            button.setAutoRaise(True)
+            button.setIconSize(icon_size(20))
+            button.setFixedSize(34, 24)
+            layout.addWidget(button)
+
+            if index < len(visible_actions) - 1:
+                separator = QFrame(container)
+                separator.setFrameShape(QFrame.Shape.VLine)
+                separator.setFrameShadow(QFrame.Shadow.Plain)
+                separator.setLineWidth(0)
+                separator.setMidLineWidth(0)
+                separator.setFixedWidth(1)
+                separator.setStyleSheet("QFrame { background-color: #3a4452; }")
+                layout.addWidget(separator)
+
+        self._menu_bar_icon_strip = container
+        menu_bar.setCornerWidget(container, Qt.Corner.TopRightCorner)
 
     def _build_main_toolbar(self) -> None:
-        toolbar = QToolBar("Main", self)
-        toolbar.setObjectName("MainToolbar")
-        toolbar.setMovable(False)
-        toolbar.setIconSize(icon_size(18))
-        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
-        self.addToolBar(toolbar)
-
-        toolbar.addAction(
-            self._make_action(
-                "new-file",
-                "New",
-                self._on_new_project_triggered,
-                shortcut=QKeySequence.StandardKey.New,
-                tooltip="New Project (Ctrl+N)",
-            )
-        )
-        toolbar.addAction(
-            self._make_action(
-                "file-open",
-                "Open",
-                self._on_load_project_triggered,
-                shortcut=QKeySequence.StandardKey.Open,
-                tooltip="Open Project (Ctrl+O)",
-            )
-        )
-        toolbar.addAction(
-            self._make_action(
-                "save",
-                "Save",
-                self._on_save_project_triggered,
-                shortcut=QKeySequence.StandardKey.Save,
-                tooltip="Save (Ctrl+S)",
-            )
-        )
-        toolbar.addSeparator()
-
-        toolbar.addAction(
-            self._make_action(
-                "import-media",
-                "Import",
-                self._on_import_media_triggered,
-                shortcut="Ctrl+I",
-                tooltip="Import Media (Ctrl+I)",
-            )
-        )
-        toolbar.addAction(
-            self._make_action(
-                "import-subtitle",
-                "Import Subtitle",
-                self._on_import_subtitle_triggered,
-                tooltip="Import Subtitle (Ctrl+Shift+I)",
-            )
-        )
-        toolbar.addSeparator()
-
-        toolbar.addAction(
-            self._make_action(
-                "undo",
-                "Undo",
-                self._on_undo_triggered,
-                shortcut=QKeySequence.StandardKey.Undo,
-                tooltip="Undo (Ctrl+Z)",
-            )
-        )
-        toolbar.addAction(
-            self._make_action(
-                "redo",
-                "Redo",
-                self._on_redo_triggered,
-                shortcut=QKeySequence.StandardKey.Redo,
-                tooltip="Redo (Ctrl+Y)",
-            )
-        )
-        toolbar.addSeparator()
-
-        toolbar.addAction(
+        # Keep transport shortcuts available, but don't show the icon cluster on the main toolbar.
+        self.addAction(
             self._make_action(
                 "skip-back",
                 "Start",
@@ -364,7 +339,7 @@ class MainWindow(QMainWindow):
                 tooltip="Go to Start (Ctrl+Home)",
             )
         )
-        toolbar.addAction(
+        self.addAction(
             self._make_action(
                 "step-back",
                 "Prev Frame",
@@ -373,7 +348,7 @@ class MainWindow(QMainWindow):
                 tooltip="Previous Frame (Alt+Left)",
             )
         )
-        toolbar.addAction(
+        self.addAction(
             self._make_action(
                 "play",
                 "Play/Pause",
@@ -382,7 +357,7 @@ class MainWindow(QMainWindow):
                 tooltip="Play/Pause (Space)",
             )
         )
-        toolbar.addAction(
+        self.addAction(
             self._make_action(
                 "stop",
                 "Stop",
@@ -391,7 +366,7 @@ class MainWindow(QMainWindow):
                 tooltip="Stop (Shift+Space)",
             )
         )
-        toolbar.addAction(
+        self.addAction(
             self._make_action(
                 "step-forward",
                 "Next Frame",
@@ -400,65 +375,6 @@ class MainWindow(QMainWindow):
                 tooltip="Next Frame (Alt+Right)",
             )
         )
-        toolbar.addSeparator()
-
-        toolbar.addAction(
-            self._make_action(
-                "zoom-out",
-                "Zoom Out",
-                self._app_shell.timeline_view.zoom_out,
-                shortcut="Ctrl+-",
-                tooltip="Zoom Out (Ctrl+-)",
-            )
-        )
-        toolbar.addAction(
-            self._make_action(
-                "zoom-in",
-                "Zoom In",
-                self._app_shell.timeline_view.zoom_in,
-                shortcut="Ctrl+=",
-                tooltip="Zoom In (Ctrl+=)",
-            )
-        )
-        toolbar.addAction(
-            self._make_action(
-                "fit",
-                "Fit",
-                self._app_shell.timeline_view.fit_timeline,
-                shortcut="Ctrl+0",
-                tooltip="Fit Timeline (Ctrl+0)",
-            )
-        )
-        toolbar.addSeparator()
-
-        self._snap_action = self._make_action(
-            "magnet",
-            "Snap",
-            self._on_snap_toggled,
-            tooltip="Toggle Snap",
-            checkable=True,
-        )
-        self._snap_action.setChecked(self._app_controller.timeline_controller.snapping_enabled())
-        toolbar.addAction(self._snap_action)
-
-        spacer = QWidget(self)
-        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        toolbar.addWidget(spacer)
-
-        if self._sticker_toggle_action is not None:
-            toolbar.addAction(self._sticker_toggle_action)
-        if self._effects_toggle_action is not None:
-            toolbar.addAction(self._effects_toggle_action)
-        if self._captions_toggle_action is not None:
-            toolbar.addAction(self._captions_toggle_action)
-        if any(
-            action is not None
-            for action in (self._sticker_toggle_action, self._effects_toggle_action, self._captions_toggle_action)
-        ):
-            toolbar.addSeparator()
-
-        if self._export_action is not None:
-            toolbar.addAction(self._export_action)
 
     def _build_status_bar(self) -> None:
         status_bar: QStatusBar = self.statusBar()
@@ -557,9 +473,16 @@ class MainWindow(QMainWindow):
     def _on_new_project_triggered(self) -> None:
         if not self._confirm_discard_unsaved_changes("create a new project"):
             return
-        self._app_controller.project_controller.load_demo_project()
+        self._app_controller.load_empty_project()
         self._app_controller.playback_controller.stop()
         self.statusBar().showMessage("New project created.", 2500)
+
+    def _on_load_demo_project_triggered(self) -> None:
+        if not self._confirm_discard_unsaved_changes("load the demo project"):
+            return
+        self._app_controller.load_demo_project()
+        self._app_controller.playback_controller.stop()
+        self.statusBar().showMessage("Demo project loaded.", 2500)
 
     def _on_import_media_triggered(self) -> None:
         self._app_shell.media_panel.open_import_dialog()
@@ -583,9 +506,6 @@ class MainWindow(QMainWindow):
     def _on_paste_triggered(self) -> None:
         playhead = self._app_controller.playback_controller.current_time()
         self._app_controller.timeline_controller.paste_clipboard_at(float(playhead))
-
-    def _on_snap_toggled(self, enabled: bool) -> None:
-        self._app_controller.timeline_controller.set_snapping_enabled(enabled)
 
     def _on_open_logs_triggered(self) -> None:
         log_dir = default_log_directory()

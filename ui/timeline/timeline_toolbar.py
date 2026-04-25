@@ -3,14 +3,15 @@ from __future__ import annotations
 import math
 
 from app.controllers.timeline_controller import TimelineController
+from app.ui.shared.icons import build_icon
 from app.ui.timeline.timeline_view import TimelineView
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
     QCheckBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QMenu,
-    QPushButton,
     QSlider,
     QToolButton,
     QWidget,
@@ -34,7 +35,29 @@ class TimelineToolbar(QWidget):
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 6, 8, 6)
-        layout.setSpacing(10)
+        layout.setSpacing(8)
+
+        self._undo_button = self._create_icon_button("undo", "Undo (Ctrl+Z)")
+        self._undo_button.clicked.connect(self._timeline_controller.undo)
+        layout.addWidget(self._undo_button)
+
+        self._redo_button = self._create_icon_button("redo", "Redo (Ctrl+Y)")
+        self._redo_button.clicked.connect(self._timeline_controller.redo)
+        layout.addWidget(self._redo_button)
+        layout.addWidget(self._create_separator())
+
+        self._zoom_out_button = self._create_icon_button("zoom-out", "Zoom Out (Ctrl+-)")
+        self._zoom_out_button.clicked.connect(self._timeline_view.zoom_out)
+        layout.addWidget(self._zoom_out_button)
+
+        self._zoom_in_button = self._create_icon_button("zoom-in", "Zoom In (Ctrl+=)")
+        self._zoom_in_button.clicked.connect(self._timeline_view.zoom_in)
+        layout.addWidget(self._zoom_in_button)
+
+        self._fit_icon_button = self._create_icon_button("fit", "Fit Timeline (Ctrl+0)")
+        self._fit_icon_button.clicked.connect(self._timeline_view.fit_timeline)
+        layout.addWidget(self._fit_icon_button)
+        layout.addWidget(self._create_separator())
 
         self._add_track_button = QToolButton(self)
         self._add_track_button.setText("Add Track")
@@ -46,10 +69,11 @@ class TimelineToolbar(QWidget):
         self._add_track_button.setMenu(add_track_menu)
         layout.addWidget(self._add_track_button)
 
-        self._snap_checkbox = QCheckBox("Snap", self)
-        self._snap_checkbox.setChecked(self._timeline_controller.snapping_enabled())
-        self._snap_checkbox.toggled.connect(self._timeline_controller.set_snapping_enabled)
-        layout.addWidget(self._snap_checkbox)
+        self._snap_button = self._create_icon_button("magnet", "Toggle Snap")
+        self._snap_button.setCheckable(True)
+        self._snap_button.setChecked(self._timeline_controller.snapping_enabled())
+        self._snap_button.toggled.connect(self._timeline_controller.set_snapping_enabled)
+        layout.addWidget(self._snap_button)
 
         self._ripple_checkbox = QCheckBox("Ripple", self)
         self._ripple_checkbox.setChecked(self._timeline_controller.ripple_edit_enabled())
@@ -70,13 +94,27 @@ class TimelineToolbar(QWidget):
         self._zoom_slider.valueChanged.connect(self._on_zoom_slider_changed)
         layout.addWidget(self._zoom_slider)
 
-        self._fit_button = QPushButton("Fit", self)
-        self._fit_button.clicked.connect(self._timeline_view.fit_timeline)
-        layout.addWidget(self._fit_button)
-
         layout.addStretch(1)
         self._timeline_controller.timeline_changed.connect(self._sync_from_controller)
         self._sync_from_controller()
+
+    def _create_icon_button(self, icon_name: str, tooltip: str) -> QToolButton:
+        button = QToolButton(self)
+        button.setIcon(build_icon(icon_name))
+        button.setIconSize(QSize(18, 18))
+        button.setToolTip(tooltip)
+        button.setAutoRaise(True)
+        return button
+
+    def _create_separator(self) -> QFrame:
+        separator = QFrame(self)
+        separator.setFrameShape(QFrame.Shape.VLine)
+        separator.setFrameShadow(QFrame.Shadow.Plain)
+        separator.setLineWidth(0)
+        separator.setMidLineWidth(0)
+        separator.setFixedWidth(1)
+        separator.setStyleSheet("QFrame { background-color: #3a4452; }")
+        return separator
 
     def _add_track(self, track_type: str) -> None:
         self._timeline_controller.add_track(track_type)
@@ -90,7 +128,7 @@ class TimelineToolbar(QWidget):
     def _sync_from_controller(self) -> None:
         self._is_syncing = True
         try:
-            self._snap_checkbox.setChecked(self._timeline_controller.snapping_enabled())
+            self._snap_button.setChecked(self._timeline_controller.snapping_enabled())
             self._ripple_checkbox.setChecked(self._timeline_controller.ripple_edit_enabled())
             self._playhead_sticky_checkbox.setChecked(self._timeline_view.playhead_sticky_to_mouse_enabled())
             pps = self._timeline_controller.pixels_per_second

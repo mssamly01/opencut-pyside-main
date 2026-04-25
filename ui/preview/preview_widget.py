@@ -13,10 +13,11 @@ from app.domain.clips.sticker_clip import StickerClip
 from app.domain.clips.text_clip import TextClip
 from app.domain.clips.video_clip import VideoClip
 from app.services.keyframe_evaluator import resolve_clip_value_at
-from app.ui.preview.playback_toolbar import PlaybackToolbar
-from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QImage, QMouseEvent, QPainter, QPaintEvent, QPen, QPixmap, QTransform
-from PySide6.QtWidgets import QCheckBox, QHBoxLayout, QPushButton, QVBoxLayout, QWidget
+from app.ui.preview.playback_toolbar import PlaybackPlayButton, PlaybackTimeLabel
+from app.ui.shared.icons import build_icon
+from PySide6.QtCore import QPointF, QRectF, QSize, Qt
+from PySide6.QtGui import QAction, QColor, QImage, QMouseEvent, QPainter, QPaintEvent, QPen, QPixmap, QTransform
+from PySide6.QtWidgets import QHBoxLayout, QMenu, QPushButton, QToolButton, QVBoxLayout, QWidget
 
 _ASPECT_PRESETS: list[tuple[str, int, int]] = [
     ("16:9", 1920, 1080),
@@ -471,30 +472,9 @@ class PreviewWidget(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
+        layout.setSpacing(0)
 
-        aspect_row = QHBoxLayout()
-        aspect_row.setContentsMargins(8, 6, 8, 0)
-        aspect_row.setSpacing(6)
-        for label, width, height in _ASPECT_PRESETS:
-            button = QPushButton(label, self)
-            button.setProperty("aspect_width", width)
-            button.setProperty("aspect_height", height)
-            button.clicked.connect(self._on_aspect_button_clicked)
-            aspect_row.addWidget(button)
-        self._safe_zone_check = QCheckBox("Safe Zone", self)
-        self._safe_zone_check.toggled.connect(self._on_safe_zone_toggled)
-        aspect_row.addWidget(self._safe_zone_check)
-        self._auto_keyframe_check = QCheckBox("Auto-keyframe", self)
-        self._auto_keyframe_check.setToolTip(
-            "When enabled, manipulator edits insert keyframes at the playhead."
-        )
-        self._auto_keyframe_check.setChecked(self._timeline_controller.auto_keyframe_enabled())
-        self._auto_keyframe_check.toggled.connect(self._on_auto_keyframe_toggled)
-        aspect_row.addWidget(self._auto_keyframe_check)
-        aspect_row.addStretch(1)
-        layout.addLayout(aspect_row)
-
+        # Canvas
         self.preview_canvas = _PreviewCanvas(
             project_controller=self._project_controller,
             timeline_controller=self._timeline_controller,
@@ -502,7 +482,79 @@ class PreviewWidget(QWidget):
             parent=self,
         )
         layout.addWidget(self.preview_canvas, 1)
-        layout.addWidget(PlaybackToolbar(self._playback_controller, self))
+
+        # Bottom toolbar (3 columns)
+        bottom_bar = QWidget(self)
+        bottom_bar.setObjectName("previewBottomBar")
+        bottom_bar.setFixedHeight(44)
+        bottom_bar.setStyleSheet("#previewBottomBar { background: #1a1d23; border-top: 1px solid #2a2f37; }")
+        bottom_layout = QHBoxLayout(bottom_bar)
+        bottom_layout.setContentsMargins(8, 4, 8, 4)
+        bottom_layout.setSpacing(8)
+
+        self._time_label = PlaybackTimeLabel(self._playback_controller, bottom_bar)
+        bottom_layout.addWidget(self._time_label, alignment=Qt.AlignmentFlag.AlignLeft)
+
+        bottom_layout.addStretch(1)
+        bottom_layout.addWidget(
+            PlaybackPlayButton(self._playback_controller, bottom_bar),
+            alignment=Qt.AlignmentFlag.AlignCenter,
+        )
+        bottom_layout.addStretch(1)
+
+        right_group = QWidget(bottom_bar)
+        right_group_layout = QHBoxLayout(right_group)
+        right_group_layout.setContentsMargins(0, 0, 0, 0)
+        right_group_layout.setSpacing(6)
+        control_height = 30
+
+        icon_tool_style = (
+            "QToolButton { border: none; background: transparent; border-radius: 4px; padding: 0px; }"
+            "QToolButton:hover { border: none; background: rgba(255,255,255,0.14); }"
+            "QToolButton:pressed { border: none; background: rgba(255,255,255,0.20); }"
+        )
+
+        zoom_button = QToolButton(right_group)
+        zoom_button.setIcon(build_icon("zoom-in"))
+        zoom_button.setIconSize(QSize(20, 20))
+        zoom_button.setToolTip("Thu phong")
+        zoom_button.setAutoRaise(True)
+        zoom_button.setFixedSize(control_height, control_height)
+        zoom_button.setStyleSheet(icon_tool_style)
+        right_group_layout.addWidget(zoom_button)
+
+        self._aspect_menu_button = QPushButton("Ty le khung hinh", right_group)
+        self._aspect_menu_button.setFlat(False)
+        self._aspect_menu_button.setFixedHeight(control_height)
+        self._aspect_menu_button.setStyleSheet(
+            "QPushButton { border: 1px solid #384256; border-radius: 4px; padding: 0 10px; background: #222a36; color: #d6deea; }"
+            "QPushButton:hover { background: #2a3443; border-color: #445069; }"
+            "QPushButton::menu-indicator { image: none; width: 0px; }"
+        )
+        self._aspect_menu_button.setToolTip("Doi ty le khung hinh du an")
+        aspect_menu = QMenu(self._aspect_menu_button)
+        for label, width, height in _ASPECT_PRESETS:
+            action = aspect_menu.addAction(label)
+            action.setData((width, height))
+            action.triggered.connect(self._on_aspect_action_triggered)
+        self._aspect_menu_button.setMenu(aspect_menu)
+        right_group_layout.addWidget(self._aspect_menu_button)
+
+        fullscreen_button = QToolButton(right_group)
+        fullscreen_button.setIcon(build_icon("fit"))
+        fullscreen_button.setIconSize(QSize(20, 20))
+        fullscreen_button.setToolTip("Toan man hinh")
+        fullscreen_button.setAutoRaise(True)
+        fullscreen_button.setFixedSize(control_height, control_height)
+        fullscreen_button.setStyleSheet(icon_tool_style)
+        right_group_layout.addWidget(fullscreen_button)
+
+        bottom_layout.addWidget(right_group, alignment=Qt.AlignmentFlag.AlignRight)
+        layout.addWidget(bottom_bar)
+
+        self._project_controller.project_changed.connect(self._refresh_total_duration)
+        self._timeline_controller.timeline_changed.connect(self._refresh_total_duration)
+        self._refresh_total_duration()
 
         self._playback_controller.current_time_changed.connect(self._on_current_time_changed)
         self._playback_controller.preview_frame_changed.connect(self._on_preview_frame_changed)
@@ -514,22 +566,26 @@ class PreviewWidget(QWidget):
 
         self._render_preview()
 
-    def _on_aspect_button_clicked(self) -> None:
-        sender = self.sender()
-        if not isinstance(sender, QPushButton):
+    def _on_aspect_action_triggered(self) -> None:
+        action = self.sender()
+        if not isinstance(action, QAction):
             return
-        width = int(sender.property("aspect_width") or 0)
-        height = int(sender.property("aspect_height") or 0)
+        data = action.data()
+        if not isinstance(data, tuple) or len(data) != 2:
+            return
+        width, height = data
+        if not isinstance(width, int) or not isinstance(height, int):
+            return
         if width <= 0 or height <= 0:
             return
         if self._project_controller.set_project_resolution(width, height):
             self._playback_controller.refresh_preview_frame()
+            self._aspect_menu_button.setText(f"Ty le {action.text()}")
 
-    def _on_safe_zone_toggled(self, enabled: bool) -> None:
-        self.preview_canvas.set_safe_zone_enabled(enabled)
-
-    def _on_auto_keyframe_toggled(self, enabled: bool) -> None:
-        self._timeline_controller.set_auto_keyframe_enabled(bool(enabled))
+    def _refresh_total_duration(self) -> None:
+        project = self._project_controller.active_project()
+        total_seconds = project.timeline.total_duration() if project is not None else 0.0
+        self._time_label.set_total_seconds(total_seconds)
 
     def _on_current_time_changed(self, current_time: float) -> None:
         self._current_time = current_time
