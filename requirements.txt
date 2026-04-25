@@ -1,1 +1,3 @@
 PySide6>=6.6
+
+# Sprint 7: runtime deps stay minimal.

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 from pathlib import Path
 
 from app.domain.clips.base_clip import BaseClip
@@ -11,14 +12,20 @@ from app.infrastructure.ffmpeg_gateway import FFmpegGateway
 
 
 class ThumbnailService:
+    _MAX_MEMORY_ENTRIES = 256
+
     def __init__(
         self,
         ffmpeg_gateway: FFmpegGateway | None = None,
         cache_root: Path | None = None,
+        max_memory_entries: int | None = None,
     ) -> None:
         self._ffmpeg_gateway = ffmpeg_gateway or FFmpegGateway()
         self._cache_root = cache_root or (Path.home() / ".opencut-pyside" / "cache" / "thumbnails")
-        self._memory_cache: dict[str, bytes] = {}
+        self._memory_cache: OrderedDict[str, bytes] = OrderedDict()
+        self._max_memory_entries = (
+            max_memory_entries if max_memory_entries is not None else self._MAX_MEMORY_ENTRIES
+        )
 
     def get_thumbnail_bytes(
         self,
@@ -123,6 +130,17 @@ class ThumbnailService:
     def clear_memory_cache(self) -> None:
         self._memory_cache.clear()
 
+    def _remember_in_cache(self, cache_key: str, payload: bytes) -> None:
+        cache = self._memory_cache
+        if cache_key in cache:
+            cache.move_to_end(cache_key)
+            cache[cache_key] = payload
+            return
+
+        cache[cache_key] = payload
+        while len(cache) > self._max_memory_entries:
+            cache.popitem(last=False)
+
     def _persist_cache(self, cache_path: Path, payload: bytes) -> None:
         try:
             cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -188,6 +206,7 @@ class ThumbnailService:
         cache_key = str(cache_path)
         cached = self._memory_cache.get(cache_key)
         if cached is not None:
+            self._memory_cache.move_to_end(cache_key)
             return cached
 
         if cache_path.exists() and cache_path.is_file():
@@ -196,14 +215,14 @@ class ThumbnailService:
             except OSError:
                 cached = None
             if cached:
-                self._memory_cache[cache_key] = cached
+                self._remember_in_cache(cache_key, cached)
                 return cached
 
         return None
 
     def _write_cached_bytes(self, cache_path: Path, payload: bytes) -> None:
         self._persist_cache(cache_path, payload)
-        self._memory_cache[str(cache_path)] = payload
+        self._remember_in_cache(str(cache_path), payload)
 
     def _cache_path(self, media_id: str, source_time: float) -> Path:
         normalized_media_id = media_id.strip() or "unknown"

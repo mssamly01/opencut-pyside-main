@@ -20,6 +20,7 @@ from app.domain.clips.video_clip import VideoClip
 from app.domain.media_asset import MediaAsset
 from app.domain.project import Project
 from app.dto.export_dto import ExportOptions, ExportResult
+from app.infrastructure.gpu_encoder import GpuEncoderProbe
 from app.services.keyframe_evaluator import clip_has_keyframes, ffmpeg_piecewise_expression
 
 ProgressCallback = Callable[[float, str], None]
@@ -54,6 +55,7 @@ class ExportService:
     def __init__(self, ffmpeg_executable: str | None = None, timeout_seconds: float | None = None) -> None:
         self._ffmpeg_executable = self._resolve_ffmpeg_executable(ffmpeg_executable)
         self._timeout_seconds = timeout_seconds
+        self._gpu_probe = GpuEncoderProbe(self._ffmpeg_executable)
 
     def export_project(
         self,
@@ -462,6 +464,28 @@ class ExportService:
         preset = (options.preset or self._VIDEO_PRESET).strip() or self._VIDEO_PRESET
         crf = str(max(0, min(int(options.crf), 63)))
 
+        gpu_override = (options.gpu_codec_override or "").strip().lower()
+        if gpu_override == "auto":
+            gpu_codec = self._gpu_probe.first_available_h264()
+            if gpu_codec is not None:
+                codec = gpu_codec.name
+            else:
+                codec = self._VIDEO_CODEC
+                warnings.append("No GPU encoder detected; using software libx264.")
+        elif gpu_override:
+            available_names = {codec_info.name for codec_info in self._gpu_probe.available()}
+            if gpu_override in available_names:
+                codec = gpu_override
+            else:
+                codec = self._VIDEO_CODEC
+                warnings.append(
+                    f"Requested GPU encoder '{gpu_override}' unavailable; using software libx264."
+                )
+
+        is_gpu_codec = any(
+            family in codec for family in ("_nvenc", "_qsv", "_amf", "_videotoolbox")
+        )
+
         command.extend(["-filter_complex", ";".join(filter_parts)])
         command.extend(["-map", f"[{current_video_label}]"])
         command.extend(["-map", audio_output_label if audio_output_label == "1:a" else f"[{audio_output_label}]"])
@@ -472,6 +496,20 @@ class ExportService:
 
         if codec == "libvpx-vp9":
             command.extend(["-c:v", "libvpx-vp9", "-crf", crf, "-b:v", "0"])
+        elif is_gpu_codec:
+            gpu_preset = "p4" if "_nvenc" in codec else "medium"
+            command.extend(
+                [
+                    "-c:v",
+                    codec,
+                    "-preset",
+                    gpu_preset,
+                    "-cq",
+                    crf,
+                    "-rc",
+                    "vbr",
+                ]
+            )
         else:
             command.extend(["-c:v", codec, "-preset", preset, "-crf", crf])
         command.extend(

@@ -39,6 +39,12 @@ class MainWindow(QMainWindow):
         self._dirty_label: QLabel | None = None
         self._timecode_label: QLabel | None = None
         self._project_info_label: QLabel | None = None
+        self._captions_dock: QDockWidget | None = None
+        self._effects_dock: QDockWidget | None = None
+        self._sticker_dock: QDockWidget | None = None
+        self._captions_toggle_action: QAction | None = None
+        self._effects_toggle_action: QAction | None = None
+        self._sticker_toggle_action: QAction | None = None
 
         self.setWindowTitle("OpenCut PySide")
         self.resize(1440, 860)
@@ -46,11 +52,12 @@ class MainWindow(QMainWindow):
         self._app_shell = AppShell(app_controller=self._app_controller)
         self.setCentralWidget(self._app_shell)
 
+        self._captions_dock = self._build_captions_dock()
+        self._effects_dock = self._build_effects_dock()
+        self._sticker_dock = self._build_sticker_dock()
+        self._build_dock_toggle_actions()
         self._build_menu_bar()
         self._build_main_toolbar()
-        self._build_captions_dock()
-        self._build_effects_dock()
-        self._build_sticker_dock()
         self._build_status_bar()
 
         self._app_controller.project_controller.project_changed.connect(self._refresh_window_title)
@@ -261,6 +268,13 @@ class MainWindow(QMainWindow):
                 shortcut="Ctrl+0",
             )
         )
+        view_menu.addSeparator()
+        if self._sticker_toggle_action is not None:
+            view_menu.addAction(self._sticker_toggle_action)
+        if self._effects_toggle_action is not None:
+            view_menu.addAction(self._effects_toggle_action)
+        if self._captions_toggle_action is not None:
+            view_menu.addAction(self._captions_toggle_action)
 
         clip_menu: QMenu = menu_bar.addMenu("&Clip")
         clip_menu.addAction(self._make_action("text", "Add Text", self._on_add_text_triggered, shortcut="Ctrl+Shift+T"))
@@ -339,11 +353,6 @@ class MainWindow(QMainWindow):
                 tooltip="Redo (Ctrl+Y)",
             )
         )
-        toolbar.addAction(self._make_action("split", "Split", self._on_split_triggered, tooltip="Split at Playhead (S)"))
-        toolbar.addAction(
-            self._make_action("duplicate", "Duplicate", self._on_duplicate_triggered, tooltip="Duplicate (Ctrl+D)")
-        )
-        toolbar.addAction(self._make_action("delete", "Delete", self._on_delete_triggered, tooltip="Delete (Del)"))
         toolbar.addSeparator()
 
         toolbar.addAction(
@@ -436,6 +445,18 @@ class MainWindow(QMainWindow):
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         toolbar.addWidget(spacer)
 
+        if self._sticker_toggle_action is not None:
+            toolbar.addAction(self._sticker_toggle_action)
+        if self._effects_toggle_action is not None:
+            toolbar.addAction(self._effects_toggle_action)
+        if self._captions_toggle_action is not None:
+            toolbar.addAction(self._captions_toggle_action)
+        if any(
+            action is not None
+            for action in (self._sticker_toggle_action, self._effects_toggle_action, self._captions_toggle_action)
+        ):
+            toolbar.addSeparator()
+
         if self._export_action is not None:
             toolbar.addAction(self._export_action)
 
@@ -457,26 +478,57 @@ class MainWindow(QMainWindow):
         status_bar.addWidget(self._project_info_label, 1)
         status_bar.addPermanentWidget(self._timecode_label)
 
-    def _build_captions_dock(self) -> None:
+    def _build_captions_dock(self) -> QDockWidget:
         dock = QDockWidget("Captions", self)
         dock.setObjectName("CaptionsDock")
         dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
         dock.setWidget(CaptionsPanel(self._app_controller, dock))
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+        dock.hide()
+        return dock
 
-    def _build_effects_dock(self) -> None:
+    def _build_effects_dock(self) -> QDockWidget:
         dock = QDockWidget("Effects", self)
         dock.setObjectName("EffectsDock")
         dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
         dock.setWidget(EffectsDrawer(self._app_controller, dock))
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+        dock.hide()
+        return dock
 
-    def _build_sticker_dock(self) -> None:
+    def _build_sticker_dock(self) -> QDockWidget:
         dock = QDockWidget("Stickers", self)
         dock.setObjectName("StickersDock")
         dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
         dock.setWidget(StickerDrawer(dock))
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, dock)
+        dock.hide()
+        return dock
+
+    def _build_dock_toggle_actions(self) -> None:
+        if self._sticker_dock is not None:
+            action = self._sticker_dock.toggleViewAction()
+            action.setText("Show Stickers")
+            action.setIcon(build_icon("sticker"))
+            action.setShortcut(QKeySequence("Ctrl+Alt+S"))
+            action.setToolTip("Show/Hide Stickers (Ctrl+Alt+S)")
+            self._sticker_toggle_action = action
+
+        if self._effects_dock is not None:
+            action = self._effects_dock.toggleViewAction()
+            action.setText("Show Effects")
+            action.setIcon(build_icon("magic"))
+            action.setShortcut(QKeySequence("Ctrl+Alt+E"))
+            action.setToolTip("Show/Hide Effects (Ctrl+Alt+E)")
+            self._effects_toggle_action = action
+
+        if self._captions_dock is not None:
+            action = self._captions_dock.toggleViewAction()
+            action.setText("Show Captions")
+            action.setIcon(build_icon("subtitle"))
+            action.setShortcut(QKeySequence("Ctrl+Alt+C"))
+            action.setToolTip("Show/Hide Captions (Ctrl+Alt+C)")
+            self._captions_toggle_action = action
 
     def _on_undo_triggered(self) -> None:
         self._app_controller.timeline_controller.undo()

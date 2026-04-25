@@ -128,6 +128,15 @@ class ExportDialog(QDialog):
         self._preset_combo.setCurrentText("veryfast")
         form.addRow("Preset", self._preset_combo)
 
+        self._gpu_combo = QComboBox(self)
+        self._gpu_combo.addItem("Software (CPU)", None)
+        self._gpu_combo.addItem("Auto (detect GPU)", "auto")
+        self._gpu_combo.addItem("NVIDIA NVENC", "h264_nvenc")
+        self._gpu_combo.addItem("Intel QuickSync", "h264_qsv")
+        self._gpu_combo.addItem("AMD AMF", "h264_amf")
+        self._gpu_combo.addItem("Apple VideoToolbox", "h264_videotoolbox")
+        form.addRow("Acceleration", self._gpu_combo)
+
         self._crf_spin = QSpinBox(self)
         self._crf_spin.setRange(0, 63)
         self._crf_spin.setValue(23)
@@ -153,6 +162,7 @@ class ExportDialog(QDialog):
         return str(normalized)
 
     def export_options(self) -> ExportOptions:
+        gpu_data = self._gpu_combo.currentData()
         return ExportOptions(
             in_point_seconds=float(self._in_spin.value()) if self._in_spin.value() > 0.0 else None,
             out_point_seconds=float(self._out_spin.value()) if self._out_enabled.isChecked() else None,
@@ -162,6 +172,7 @@ class ExportDialog(QDialog):
             codec=str(self._codec_combo.currentData() or "libx264"),
             preset=str(self._preset_combo.currentData() or "veryfast"),
             crf=int(self._crf_spin.value()),
+            gpu_codec_override=str(gpu_data) if gpu_data else None,
         )
 
     def _browse_output_path(self) -> None:

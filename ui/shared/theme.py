@@ -104,27 +104,35 @@ QListWidget::item:selected, QListView::item:selected {
 
 QDockWidget {
     color: #cdd4dc;
+    font-weight: 600;
     titlebar-close-icon: url(none);
 }
 QDockWidget::title {
-    background-color: #22262d;
-    padding: 4px 8px;
-    border-bottom: 1px solid #3a4452;
+    background-color: #1f2733;
+    color: #f7fbff;
+    padding: 6px 10px;
+    border-bottom: 1px solid #283344;
+}
+QDockWidget::close-button, QDockWidget::float-button {
+    border: none;
+    background: transparent;
 }
 
-QTabWidget::pane { border: 1px solid #3a4452; background-color: #1a1d23; }
-QTabBar::tab {
-    background-color: #22262d;
-    color: #b9c2cc;
-    padding: 6px 12px;
-    border: 1px solid #3a4452;
-    border-bottom: none;
-    border-top-left-radius: 3px;
-    border-top-right-radius: 3px;
-    margin-right: 2px;
+QTabWidget::pane {
+    border: none;
+    border-top: 1px solid #283344;
+    background-color: #1a1d23;
 }
-QTabBar::tab:selected { background-color: #1a1d23; color: #f6c453; }
-QTabBar::tab:hover:!selected { background-color: #2c323c; }
+QTabBar::tab {
+    background: transparent;
+    color: #7a8794;
+    padding: 8px 16px;
+    border: none;
+    border-bottom: 2px solid transparent;
+    margin-right: 0;
+}
+QTabBar::tab:hover { color: #c4ccd6; }
+QTabBar::tab:selected { color: #f7fbff; border-bottom: 2px solid #4a90e2; }
 
 QSlider::groove:horizontal {
     background: #14171c;

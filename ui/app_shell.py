@@ -39,8 +39,11 @@ class AppShell(QWidget):
         top_splitter.addWidget(self.preview_widget)
         top_splitter.addWidget(self.inspector_panel)
         top_splitter.setStretchFactor(0, 2)
-        top_splitter.setStretchFactor(1, 5)
+        top_splitter.setStretchFactor(1, 6)
         top_splitter.setStretchFactor(2, 3)
+        top_splitter.setSizes([240, 720, 280])
+        self.media_panel.setMinimumWidth(180)
+        self.inspector_panel.setMinimumWidth(240)
 
         # Root: [Top area]
         #       -----------

@@ -13,15 +13,19 @@ from app.ui.inspector.project_inspector import ProjectInspector
 from app.ui.inspector.text_inspector import TextInspector
 from app.ui.inspector.video_inspector import VideoInspector
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLabel, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QScrollArea, QTabWidget, QVBoxLayout, QWidget
 
 
 class InspectorPanel(QWidget):
+    """Tabbed Project/Clip inspector to keep the right panel compact."""
+
     def __init__(self, app_controller: AppController, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._app_controller = app_controller
         self._project_inspector = ProjectInspector(self._app_controller.timeline_controller, self)
         self._clip_placeholder = QLabel("Select a clip to edit", self)
+        self._clip_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._clip_placeholder.setStyleSheet("color: #7a8794; padding: 24px;")
         self._clip_container = QWidget(self)
         self._clip_container_layout = QVBoxLayout(self._clip_container)
         self._clip_container_layout.setContentsMargins(0, 0, 0, 0)
@@ -33,36 +37,50 @@ class InspectorPanel(QWidget):
         outer_layout.setContentsMargins(0, 0, 0, 0)
         outer_layout.setSpacing(0)
 
-        scroll = QScrollArea(self)
+        self._tabs = QTabWidget(self)
+        self._tabs.setTabPosition(QTabWidget.TabPosition.North)
+        self._tabs.setDocumentMode(True)
+        outer_layout.addWidget(self._tabs)
+
+        project_tab = QWidget(self._tabs)
+        project_layout = QVBoxLayout(project_tab)
+        project_layout.setContentsMargins(8, 8, 8, 8)
+        project_layout.setSpacing(8)
+        project_layout.addWidget(self._project_inspector)
+        project_layout.addStretch()
+        self._tabs.addTab(project_tab, "Project")
+
+        clip_tab = QWidget(self._tabs)
+        clip_layout = QVBoxLayout(clip_tab)
+        clip_layout.setContentsMargins(0, 0, 0, 0)
+        clip_layout.setSpacing(0)
+
+        scroll = QScrollArea(clip_tab)
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        outer_layout.addWidget(scroll)
 
-        content = QWidget(scroll)
-        scroll.setWidget(content)
-
-        layout = QVBoxLayout(content)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(12)
-
-        project_title = QLabel("Project", content)
-        project_title.setStyleSheet("font-weight: 600;")
-        layout.addWidget(project_title)
-        layout.addWidget(self._project_inspector)
-
-        clip_title = QLabel("Selected Clip", content)
-        clip_title.setStyleSheet("font-weight: 600;")
-        layout.addWidget(clip_title)
+        scroll_content = QWidget(scroll)
+        scroll_layout = QVBoxLayout(scroll_content)
+        scroll_layout.setContentsMargins(8, 8, 8, 8)
+        scroll_layout.setSpacing(8)
         self._clip_container_layout.addWidget(self._clip_placeholder)
-        layout.addWidget(self._clip_container)
-        layout.addStretch()
+        scroll_layout.addWidget(self._clip_container)
+        scroll_layout.addStretch()
+        scroll.setWidget(scroll_content)
+
+        clip_layout.addWidget(scroll)
+        self._tabs.addTab(clip_tab, "Clip")
 
         self._app_controller.project_controller.project_changed.connect(self._refresh_project_inspector)
         self._app_controller.timeline_controller.timeline_edited.connect(self._refresh_from_state)
-        self._app_controller.selection_controller.selection_changed.connect(self._refresh_from_state)
-
+        self._app_controller.selection_controller.selection_changed.connect(self._on_selection_changed)
         self._refresh_from_state()
+
+    def _on_selection_changed(self) -> None:
+        self._refresh_clip_inspector()
+        if self._selected_clip(self._app_controller.project_controller.active_project()) is not None:
+            self._tabs.setCurrentIndex(1)
 
     def _refresh_from_state(self) -> None:
         self._refresh_project_inspector()
