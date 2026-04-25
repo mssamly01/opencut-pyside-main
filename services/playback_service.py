@@ -321,46 +321,61 @@ class PlaybackService:
                     active_word_index = index
                     break
 
-        if clip.word_timings and len(lines) == 1:
-            tokens = list(clip.word_timings)
+        line_tokens_text: list[list[str]] = [line.split() for line in lines]
+        total_text_tokens = sum(len(tokens) for tokens in line_tokens_text)
+        use_per_word = (
+            bool(clip.word_timings)
+            and total_text_tokens == len(clip.word_timings)
+            and total_text_tokens > 0
+        )
+
+        if use_per_word:
             space_width = metrics.horizontalAdvance(" ")
-            word_widths = [metrics.horizontalAdvance(token.text) for token in tokens]
-            content_width = sum(word_widths) + max(0, len(word_widths) - 1) * space_width
+            global_word_index = 0
+            for line_index, line_tokens in enumerate(line_tokens_text):
+                if not line_tokens:
+                    continue
 
-            if alignment == "left":
-                line_x = block_left
-            elif alignment == "right":
-                line_x = block_left + (block_width - content_width)
-            else:
-                line_x = block_left + (block_width - content_width) / 2.0
-            line_y = block_top + ascent
+                token_widths = [metrics.horizontalAdvance(token_text) for token_text in line_tokens]
+                content_width = sum(token_widths) + max(0, len(line_tokens) - 1) * space_width
 
-            cursor_x = line_x
-            for index, token in enumerate(tokens):
-                path = QPainterPath()
-                path.addText(QPointF(cursor_x, line_y), font, token.text)
+                if alignment == "left":
+                    line_x = block_left
+                elif alignment == "right":
+                    line_x = block_left + (block_width - content_width)
+                else:
+                    line_x = block_left + (block_width - content_width) / 2.0
+                line_y = block_top + ascent + line_index * line_height
 
-                if has_shadow:
-                    shadow_path = QPainterPath(path)
-                    shadow_path.translate(float(clip.shadow_offset_x), float(clip.shadow_offset_y))
+                cursor_x = line_x
+                for token_index, token_text in enumerate(line_tokens):
+                    path = QPainterPath()
+                    path.addText(QPointF(cursor_x, line_y), font, token_text)
+
+                    if has_shadow:
+                        shadow_path = QPainterPath(path)
+                        shadow_path.translate(float(clip.shadow_offset_x), float(clip.shadow_offset_y))
+                        painter.setPen(Qt.PenStyle.NoPen)
+                        painter.setBrush(QBrush(shadow_color))
+                        painter.drawPath(shadow_path)
+
+                    if outline_width > 0.0:
+                        pen = QPen(outline_color, outline_width * 2.0)
+                        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+                        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+                        painter.setPen(pen)
+                        painter.setBrush(Qt.BrushStyle.NoBrush)
+                        painter.drawPath(path)
+
+                    is_active = active_word_index is not None and active_word_index == global_word_index
                     painter.setPen(Qt.PenStyle.NoPen)
-                    painter.setBrush(QBrush(shadow_color))
-                    painter.drawPath(shadow_path)
-
-                if outline_width > 0.0:
-                    pen = QPen(outline_color, outline_width * 2.0)
-                    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-                    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-                    painter.setPen(pen)
-                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.setBrush(QBrush(highlight_color if is_active else fill_color))
                     painter.drawPath(path)
 
-                painter.setPen(Qt.PenStyle.NoPen)
-                painter.setBrush(QBrush(highlight_color if active_word_index == index else fill_color))
-                painter.drawPath(path)
-                cursor_x += word_widths[index]
-                if index + 1 < len(tokens):
-                    cursor_x += space_width
+                    cursor_x += token_widths[token_index]
+                    if token_index + 1 < len(line_tokens):
+                        cursor_x += space_width
+                    global_word_index += 1
         else:
             for line_index, line in enumerate(lines):
                 line_width = line_widths[line_index]

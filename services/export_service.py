@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -48,6 +49,7 @@ class ExportService:
         "wipe_left": "wipeleft",
         "wipe_right": "wiperight",
     }
+    _qt_gui_app = None
 
     def __init__(self, ffmpeg_executable: str | None = None, timeout_seconds: float | None = None) -> None:
         self._ffmpeg_executable = self._resolve_ffmpeg_executable(ffmpeg_executable)
@@ -206,18 +208,15 @@ class ExportService:
         current_video_label = "basev"
 
         for text_index, text_clip in enumerate(text_clips):
-            overlay_label = f"tov{text_index}"
-            start_seconds = max(0.0, text_clip.timeline_start)
-            end_seconds = start_seconds + text_clip.duration
-            drawtext_options = self._drawtext_options_for_clip(text_clip, project)
-            drawtext_options.append(f"enable='between(t,{start_seconds:.6f},{end_seconds:.6f})'")
-
-            filter_parts.append(
-                f"[{current_video_label}]"
-                f"drawtext={':'.join(drawtext_options)}"
-                f"[{overlay_label}]"
-            )
-            current_video_label = overlay_label
+            overlays = self._build_text_clip_drawtext_chain(text_clip, project)
+            for overlay_index, drawtext_options in enumerate(overlays):
+                overlay_label = f"tov{text_index}_{overlay_index}"
+                filter_parts.append(
+                    f"[{current_video_label}]"
+                    f"drawtext={':'.join(drawtext_options)}"
+                    f"[{overlay_label}]"
+                )
+                current_video_label = overlay_label
 
         transition_lookup: dict[tuple[str, str], object] = {}
         for track in project.timeline.tracks:
@@ -383,13 +382,19 @@ class ExportService:
 
             voice_clip_ids: set[str] = set()
             music_clip_ids: set[str] = set()
+            sfx_clip_ids: set[str] = set()
             for track in project.timeline.tracks:
                 if track.is_hidden or track.is_muted:
                     continue
                 if track.track_type.lower() not in {"audio", "mixed"}:
                     continue
                 role = str(getattr(track, "track_role", "music")).lower()
-                target_set = voice_clip_ids if role == "voice" else music_clip_ids
+                if role == "voice":
+                    target_set = voice_clip_ids
+                elif role == "sfx":
+                    target_set = sfx_clip_ids
+                else:
+                    target_set = music_clip_ids
                 for clip in track.clips:
                     if isinstance(clip, AudioClip):
                         target_set.add(clip.clip_id)
@@ -414,10 +419,16 @@ class ExportService:
                     for label, ids in audio_streams
                     if ids.intersection(music_clip_ids)
                 ]
+                managed_ids = voice_clip_ids | music_clip_ids | sfx_clip_ids
                 other_labels = [
                     label
                     for label, ids in audio_streams
-                    if not ids.intersection(voice_clip_ids | music_clip_ids)
+                    if not ids.intersection(managed_ids)
+                ]
+                sfx_labels = [
+                    label
+                    for label, ids in audio_streams
+                    if ids.intersection(sfx_clip_ids)
                 ]
 
                 if voice_labels and music_labels:
@@ -434,7 +445,12 @@ class ExportService:
                         "sidechaincompress=threshold=0.05:ratio=4:attack=20:release=300"
                         "[music_ducked]"
                     )
-                    final_audio_labels = ["[voice_for_mix]", "[music_ducked]", *other_labels]
+                    final_audio_labels = [
+                        "[voice_for_mix]",
+                        "[music_ducked]",
+                        *sfx_labels,
+                        *other_labels,
+                    ]
 
             amix_input_labels = "[1:a]" + "".join(final_audio_labels)
             filter_parts.append(
@@ -852,6 +868,120 @@ class ExportService:
             return None
         gain_factor = 10 ** (gain_db / 20.0)
         return f"volume={gain_factor:.6f}"
+
+    @classmethod
+    def _build_text_clip_drawtext_chain(cls, text_clip: TextClip, project: Project) -> list[list[str]]:
+        """
+        Build drawtext options for a text clip.
+
+        Always returns one base overlay. If clip has word timings and a single line of
+        text, append one overlay per word for highlight parity with preview.
+        """
+        start_seconds = max(0.0, text_clip.timeline_start)
+        end_seconds = start_seconds + text_clip.duration
+
+        base_options = cls._drawtext_options_for_clip(text_clip, project)
+        base_options.append(f"enable='between(t,{start_seconds:.6f},{end_seconds:.6f})'")
+        chain: list[list[str]] = [base_options]
+
+        word_timings = list(getattr(text_clip, "word_timings", []) or [])
+        if not word_timings:
+            return chain
+
+        raw_text = text_clip.content or "Text"
+        if "\n" in raw_text:
+            # Multi-line per-word export is intentionally deferred.
+            return chain
+
+        try:
+            overlays = cls._build_per_word_overlays(
+                text_clip=text_clip,
+                project=project,
+                word_timings=word_timings,
+                clip_start_seconds=start_seconds,
+            )
+        except Exception:
+            # Keep export robust in headless environments.
+            return chain
+
+        chain.extend(overlays)
+        return chain
+
+    @classmethod
+    def _build_per_word_overlays(
+        cls,
+        text_clip: TextClip,
+        project: Project,
+        word_timings: list,
+        clip_start_seconds: float,
+    ) -> list[list[str]]:
+        from PySide6.QtGui import QFont, QFontMetricsF, QGuiApplication
+
+        if QGuiApplication.instance() is None:
+            os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+            cls._qt_gui_app = QGuiApplication([])
+
+        font = QFont(text_clip.font_family or "Arial", max(1, int(text_clip.font_size)))
+        font.setBold(bool(text_clip.bold))
+        font.setItalic(bool(text_clip.italic))
+        metrics = QFontMetricsF(font)
+
+        space_width = metrics.horizontalAdvance(" ")
+        word_widths = [metrics.horizontalAdvance(timing.text or "") for timing in word_timings]
+        content_width = sum(word_widths) + max(0, len(word_widths) - 1) * space_width
+
+        anchor_x = float(text_clip.position_x) * float(project.width)
+        anchor_y = float(text_clip.position_y) * float(project.height)
+        alignment = (text_clip.alignment or "center").lower()
+        if alignment == "left":
+            block_left = anchor_x
+        elif alignment == "right":
+            block_left = anchor_x - content_width
+        else:
+            block_left = anchor_x - content_width / 2.0
+
+        line_height = metrics.height()
+        block_top_y = anchor_y - (line_height / 2.0)
+
+        highlight_color = text_clip.highlight_color or "#ffd166"
+        font_size = max(1, int(text_clip.font_size))
+        font_file = cls._resolve_font_file(
+            text_clip.font_family,
+            prefer_bold=bool(text_clip.bold),
+        )
+
+        overlays: list[list[str]] = []
+        cursor_x = block_left
+        for index, timing in enumerate(word_timings):
+            escaped_text = (
+                (timing.text or "")
+                .replace("\\", "\\\\")
+                .replace(":", "\\:")
+                .replace("'", "\\'")
+                .replace("%", "\\%")
+            )
+            word_x = int(round(cursor_x))
+            word_y = int(round(block_top_y))
+            window_start = clip_start_seconds + float(timing.start_seconds)
+            window_end = clip_start_seconds + float(timing.end_seconds)
+
+            options: list[str] = [
+                f"text='{escaped_text}'",
+                f"fontsize={font_size}",
+                f"fontcolor={highlight_color}",
+                f"x={word_x}",
+                f"y={word_y}",
+                f"enable='between(t,{window_start:.6f},{window_end:.6f})'",
+            ]
+            if font_file is not None:
+                options.append(f"fontfile={font_file}")
+            overlays.append(options)
+
+            cursor_x += word_widths[index]
+            if index + 1 < len(word_timings):
+                cursor_x += space_width
+
+        return overlays
 
     @staticmethod
     def _drawtext_options_for_clip(text_clip: TextClip, project: Project) -> list[str]:
