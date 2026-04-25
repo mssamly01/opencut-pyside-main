@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-from app.controllers.playback_controller import PlaybackController
 from app.controllers.project_controller import ProjectController
 from app.controllers.selection_controller import SelectionController
 from app.controllers.timeline_controller import TimelineController
@@ -20,16 +19,6 @@ from app.services.keyframe_evaluator import (
     resolve_clip_value_at,
 )
 from app.services.project_service import ProjectService
-from app.ui.inspector.animation_inspector import AnimationInspector
-from PySide6.QtWidgets import QApplication
-
-
-@pytest.fixture
-def qapp() -> QApplication:
-    app = QApplication.instance()
-    if app is None:
-        app = QApplication([])
-    return app
 
 
 def _wired_controllers() -> tuple[TimelineController, SelectionController, ProjectController]:
@@ -195,28 +184,3 @@ def test_timeline_controller_keyframe_api_and_auto_keyframe() -> None:
     assert clip.scale == pytest.approx(2.0)
     assert len(clip.scale_keyframes) >= 2
     assert any(abs(kf.time_seconds - 1.0) <= 1e-3 for kf in clip.scale_keyframes)
-
-
-def test_animation_inspector_smoke(qapp: QApplication) -> None:
-    timeline_controller, _selection, project_controller = _wired_controllers()
-    playback_controller = PlaybackController(project_controller=project_controller)
-    project = project_controller.active_project()
-    assert project is not None
-    clip = next(
-        clip
-        for track in project.timeline.tracks
-        for clip in track.clips
-        if isinstance(clip, VideoClip)
-    )
-
-    widget = AnimationInspector(
-        timeline_controller=timeline_controller,
-        playback_controller=playback_controller,
-        clip=clip,
-    )
-    widget.show()
-    qapp.processEvents()
-
-    assert widget is not None
-    assert widget.isVisible()
-    widget.deleteLater()

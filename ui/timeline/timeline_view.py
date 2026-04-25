@@ -7,7 +7,6 @@ from app.services.thumbnail_service import ThumbnailService
 from app.services.waveform_service import WaveformService
 from app.ui.effects_drawer import TRANSITION_MIME_TYPE
 from app.ui.media_panel.media_item_widget import media_id_from_mime_data
-from app.ui.sticker_drawer import STICKER_MIME_TYPE
 from app.ui.timeline.clip_item import ClipItem
 from app.ui.timeline.timeline_scene import TimelineScene
 from PySide6.QtCore import QPoint, QRectF, Qt
@@ -117,9 +116,6 @@ class TimelineView(QGraphicsView):
         if event.mimeData().hasFormat(TRANSITION_MIME_TYPE):
             event.acceptProposedAction()
             return
-        if event.mimeData().hasFormat(STICKER_MIME_TYPE):
-            event.acceptProposedAction()
-            return
         media_id = media_id_from_mime_data(event.mimeData())
         if media_id is not None:
             event.acceptProposedAction()
@@ -128,9 +124,6 @@ class TimelineView(QGraphicsView):
 
     def dragMoveEvent(self, event: QDragMoveEvent) -> None:
         if event.mimeData().hasFormat(TRANSITION_MIME_TYPE):
-            event.acceptProposedAction()
-            return
-        if event.mimeData().hasFormat(STICKER_MIME_TYPE):
             event.acceptProposedAction()
             return
         media_id = media_id_from_mime_data(event.mimeData())
@@ -169,37 +162,6 @@ class TimelineView(QGraphicsView):
                 event.acceptProposedAction()
             else:
                 event.ignore()
-            return
-
-        if event.mimeData().hasFormat(STICKER_MIME_TYPE):
-            sticker_path = bytes(event.mimeData().data(STICKER_MIME_TYPE)).decode(
-                "utf-8",
-                errors="ignore",
-            ).strip()
-            if not sticker_path:
-                event.ignore()
-                return
-
-            scene_pos = self.mapToScene(event.position().toPoint())
-            timeline_start = max(0.0, (scene_pos.x() - self._timeline_scene.left_gutter) / self._timeline_scene.pixels_per_second)
-            rounded_timeline_start = round(timeline_start, 3)
-            target_track = self._track_at_scene_y(scene_pos.y())
-            preferred_track_id = None
-            if target_track is not None and target_track.track_type.lower() in {"video", "overlay", "mixed"}:
-                preferred_track_id = target_track.track_id
-
-            created_clip_id = self._timeline_controller.add_sticker(
-                track_id=preferred_track_id,
-                sticker_path=sticker_path,
-                timeline_start=rounded_timeline_start,
-                duration_seconds=2.0,
-            )
-            if created_clip_id is None:
-                event.ignore()
-                return
-
-            self._selection_controller.select_clip(created_clip_id)
-            event.acceptProposedAction()
             return
 
         media_id = media_id_from_mime_data(event.mimeData())

@@ -2,7 +2,6 @@
 
 from app.domain.clips.audio_clip import AudioClip
 from app.domain.clips.base_clip import BaseClip
-from app.domain.clips.sticker_clip import StickerClip
 from app.domain.clips.video_clip import VideoClip
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
@@ -295,8 +294,6 @@ class ClipItem(QGraphicsRectItem):
             prefix = "V"
         elif isinstance(self.clip, AudioClip):
             prefix = "A"
-        elif isinstance(self.clip, StickerClip):
-            prefix = "S"
         duration_text = self._format_duration(self.clip.duration)
         return f"{prefix} - {self.clip.name}  {duration_text}"
 

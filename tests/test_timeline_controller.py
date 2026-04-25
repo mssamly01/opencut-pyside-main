@@ -225,22 +225,6 @@ def test_move_clip_overlap_auto_moves_to_other_track() -> None:
     assert len(project.timeline.tracks) == original_track_count + 1
 
 
-def test_add_text_clip_overlap_creates_new_text_track() -> None:
-    timeline_controller, _selection_controller = _build_timeline_controller()
-    project = timeline_controller.active_project()
-    assert project is not None
-
-    base_text_track_ids = [track.track_id for track in project.timeline.tracks if track.track_type == "text"]
-    created_clip_id = timeline_controller.add_text_clip("New text", timeline_start=2.0)
-
-    assert created_clip_id is not None
-    created_clip = timeline_controller._find_clip_by_id(created_clip_id)
-    assert created_clip is not None
-    text_tracks_after = [track for track in project.timeline.tracks if track.track_type == "text"]
-    assert len(text_tracks_after) == len(base_text_track_ids) + 1
-    assert created_clip.track_id != base_text_track_ids[0]
-
-
 def test_add_clip_from_media_overlap_creates_new_video_track() -> None:
     timeline_controller, _selection_controller = _build_timeline_controller()
     project = timeline_controller.active_project()

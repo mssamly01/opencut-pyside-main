@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from pathlib import Path
 from typing import Literal
 from uuid import uuid4
 
@@ -10,13 +9,11 @@ from app.controllers.selection_controller import SelectionController
 from app.domain.clips.audio_clip import AudioClip
 from app.domain.clips.base_clip import BaseClip
 from app.domain.clips.image_clip import ImageClip
-from app.domain.clips.sticker_clip import StickerClip
 from app.domain.clips.text_clip import TextClip
 from app.domain.clips.video_clip import VideoClip
 from app.domain.commands import (
     AddClipCommand,
     AddKeyframeCommand,
-    AddStickerClipCommand,
     AddTrackCommand,
     AddTransitionCommand,
     ChangeTransitionTypeCommand,
@@ -971,101 +968,6 @@ class TimelineController(QObject):
             self.execute_command(CompositeCommand(updates))
         return True
 
-    def set_clip_adjustments(
-        self,
-        clip_id: str,
-        *,
-        brightness: float | None = None,
-        contrast: float | None = None,
-        saturation: float | None = None,
-        blur: float | None = None,
-        vignette: float | None = None,
-    ) -> bool:
-        clip = self._find_clip_by_id(clip_id)
-        if clip is None:
-            return False
-        timeline = self.active_timeline()
-        if timeline is None:
-            return False
-        track, _ = self._find_clip_with_track(timeline, clip_id)
-        if self._is_clip_locked(track, clip):
-            return False
-
-        updates: list[BaseCommand] = []
-        for attr, value, clamp in (
-            ("brightness", brightness, lambda v: max(-1.0, min(1.0, float(v)))),
-            ("contrast", contrast, lambda v: max(-1.0, min(1.0, float(v)))),
-            ("saturation", saturation, lambda v: max(-1.0, min(1.0, float(v)))),
-            ("blur", blur, lambda v: max(0.0, min(1.0, float(v)))),
-            ("vignette", vignette, lambda v: max(0.0, min(1.0, float(v)))),
-        ):
-            if value is None or not hasattr(clip, attr):
-                continue
-            next_value = clamp(value)
-            current_value = getattr(clip, attr)
-            if abs(float(current_value) - float(next_value)) <= 1e-6:
-                continue
-            updates.append(UpdatePropertyCommand(clip, attr, next_value))
-
-        if not updates:
-            return False
-        if len(updates) == 1:
-            self.execute_command(updates[0])
-        else:
-            self.execute_command(CompositeCommand(updates))
-        return True
-
-    def apply_clip_color_preset(self, clip_id: str, preset: str) -> bool:
-        clip = self._find_clip_by_id(clip_id)
-        if clip is None:
-            return False
-        if not hasattr(clip, "color_preset"):
-            return False
-
-        name = (preset or "none").strip().lower()
-        preset_values: dict[str, tuple[float, float, float, float, float]] = {
-            "none": (0.0, 0.0, 0.0, 0.0, 0.0),
-            "warm": (0.08, 0.06, 0.10, 0.0, 0.0),
-            "cool": (-0.04, 0.02, -0.06, 0.0, 0.0),
-            "sepia": (0.06, 0.10, -0.10, 0.0, 0.20),
-            "bw": (0.0, 0.08, -1.0, 0.0, 0.12),
-            "vivid": (0.10, 0.14, 0.28, 0.0, 0.0),
-        }
-        if name not in preset_values:
-            name = "none"
-
-        timeline = self.active_timeline()
-        if timeline is None:
-            return False
-        track, _ = self._find_clip_with_track(timeline, clip_id)
-        if self._is_clip_locked(track, clip):
-            return False
-
-        brightness, contrast, saturation, blur, vignette = preset_values[name]
-        changes: list[BaseCommand] = []
-        if clip.color_preset != name:
-            changes.append(UpdatePropertyCommand(clip, "color_preset", name))
-        for attr, value in (
-            ("brightness", brightness),
-            ("contrast", contrast),
-            ("saturation", saturation),
-            ("blur", blur),
-            ("vignette", vignette),
-        ):
-            if not hasattr(clip, attr):
-                continue
-            if abs(float(getattr(clip, attr)) - value) <= 1e-6:
-                continue
-            changes.append(UpdatePropertyCommand(clip, attr, value))
-
-        if not changes:
-            return False
-        if len(changes) == 1:
-            self.execute_command(changes[0])
-        else:
-            self.execute_command(CompositeCommand(changes))
-        return True
-
     # --- Keyframe API (Sprint 3) ----------------------------------------
     def add_keyframe(
         self,
@@ -1453,50 +1355,6 @@ class TimelineController(QObject):
             return normalized_track_type in {"video", "overlay", "mixed"}
         return True
 
-    def add_text_clip(self, content: str = "Text", timeline_start: float | None = None) -> str | None:
-        """Add a new TextClip to the first text track (or auto-create one)."""
-        timeline = self.active_timeline()
-        if timeline is None:
-            return None
-
-        self._ensure_main_track_layout(timeline)
-        if timeline_start is None:
-            timeline_start = max(0.0, self._playhead_seconds)
-
-        text_track = self._ensure_text_track(timeline)
-        if text_track.is_locked:
-            return None
-
-        clip_id = f"clip_{uuid4().hex[:10]}"
-        clip = TextClip(
-            clip_id=clip_id,
-            name=content,
-            track_id=text_track.track_id,
-            timeline_start=max(0.0, timeline_start),
-            duration=3.0,
-            content=content,
-        )
-        destination_track = self._find_track_for_non_overlapping_placement(
-            timeline=timeline,
-            clip=clip,
-            proposed_start=clip.timeline_start,
-            preferred_track_id=text_track.track_id,
-            allow_create_track=True,
-        )
-        if destination_track is None:
-            return None
-        clip.track_id = destination_track.track_id
-
-        self.execute_command(
-            AddClipCommand(
-                timeline=timeline,
-                track_id=destination_track.track_id,
-                clip=clip,
-            )
-        )
-        self._selection_controller.select_clip(clip_id)
-        return clip_id
-
     def add_caption_segments(
         self,
         segments: list[tuple[float, float, str]],
@@ -1649,50 +1507,6 @@ class TimelineController(QObject):
         self.timeline_edited.emit()
         return True
 
-    def add_sticker(
-        self,
-        track_id: str | None,
-        sticker_path: str,
-        timeline_start: float,
-        duration_seconds: float = 2.0,
-    ) -> str | None:
-        timeline = self.active_timeline()
-        if timeline is None:
-            return None
-
-        self._ensure_main_track_layout(timeline)
-        normalized_path = (sticker_path or "").strip()
-        if not normalized_path:
-            return None
-
-        clip = StickerClip(
-            clip_id=f"sticker_{uuid4().hex[:10]}",
-            name=Path(normalized_path).stem or "Sticker",
-            track_id=track_id or "",
-            timeline_start=max(0.0, float(timeline_start)),
-            duration=max(0.05, float(duration_seconds)),
-            media_id=None,
-            source_start=0.0,
-            source_end=None,
-            sticker_path=normalized_path,
-            scale=0.35,
-        )
-
-        destination_track = self._find_track_for_non_overlapping_placement(
-            timeline=timeline,
-            clip=clip,
-            proposed_start=clip.timeline_start,
-            preferred_track_id=track_id,
-            allow_create_track=True,
-        )
-        if destination_track is None or destination_track.is_locked:
-            return None
-
-        clip.track_id = destination_track.track_id
-        self.execute_command(AddStickerClipCommand(destination_track, clip))
-        self._selection_controller.select_clip(clip.clip_id)
-        return clip.clip_id
-
     def _find_clip_by_id(self, clip_id: str) -> BaseClip | None:
         timeline = self.active_timeline()
         if timeline is None:
@@ -1834,8 +1648,6 @@ class TimelineController(QObject):
             return normalized_track_type in {"audio", "mixed"}
         if isinstance(clip, TextClip):
             return normalized_track_type in {"text", "overlay", "mixed"}
-        if isinstance(clip, StickerClip):
-            return normalized_track_type in {"video", "overlay", "mixed"}
         if isinstance(clip, (VideoClip, ImageClip)):
             return normalized_track_type in {"video", "overlay", "mixed"}
         return True
@@ -1906,8 +1718,6 @@ class TimelineController(QObject):
             track_type = "text"
         elif isinstance(clip, AudioClip):
             track_type = "audio"
-        elif isinstance(clip, StickerClip):
-            track_type = "overlay"
         elif isinstance(clip, (VideoClip, ImageClip)):
             track_type = "video"
         else:

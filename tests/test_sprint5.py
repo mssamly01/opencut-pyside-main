@@ -2,13 +2,11 @@ from __future__ import annotations
 
 import pytest
 from app.controllers.app_controller import AppController
-from app.domain.clips.sticker_clip import StickerClip
 from app.domain.clips.text_clip import TextClip
 from app.domain.clips.video_clip import VideoClip
-from app.domain.commands import AddStickerClipCommand, CommandManager, UpdateKeyframeBezierCommand
+from app.domain.commands import CommandManager, UpdateKeyframeBezierCommand
 from app.domain.keyframe import Keyframe
 from app.domain.project import build_demo_project
-from app.domain.track import Track
 from app.domain.word_timing import WordTiming
 from app.services.caption_service import CaptionSegment
 from app.services.project_service import ProjectService
@@ -46,25 +44,6 @@ def test_text_clip_split_words_evenly_is_clip_relative() -> None:
     assert words[1].end_seconds == pytest.approx(2.0)
 
 
-def test_add_sticker_clip_command_undo_redo() -> None:
-    track = Track(track_id="track_overlay", name="Overlay", track_type="overlay")
-    clip = StickerClip(
-        clip_id="sticker_1",
-        name="heart",
-        track_id=track.track_id,
-        timeline_start=0.0,
-        duration=2.0,
-        sticker_path="ui/resources/stickers/heart.png",
-    )
-    manager = CommandManager()
-    manager.execute(AddStickerClipCommand(track, clip))
-    assert len(track.clips) == 1
-    manager.undo()
-    assert track.clips == []
-    manager.redo()
-    assert len(track.clips) == 1
-
-
 def test_update_keyframe_bezier_command_undo() -> None:
     clip = VideoClip(
         clip_id="v1",
@@ -92,23 +71,11 @@ def test_update_keyframe_bezier_command_undo() -> None:
     assert keyframe.bezier_cp1_dx == pytest.approx(0.42)
 
 
-def test_project_service_roundtrip_sticker_and_word_timings(tmp_path) -> None:
+def test_project_service_roundtrip_text_word_timings(tmp_path) -> None:
     project = build_demo_project()
-    video_track = next(track for track in project.timeline.tracks if track.track_type == "video")
     text_track = next(track for track in project.timeline.tracks if track.track_type == "text")
     text_clip = next(clip for clip in text_track.clips if isinstance(clip, TextClip))
 
-    video_track.clips.append(
-        StickerClip(
-            clip_id="sticker_clip",
-            name="star",
-            track_id=video_track.track_id,
-            timeline_start=2.0,
-            duration=1.2,
-            sticker_path="ui/resources/stickers/star.png",
-            scale=0.4,
-        )
-    )
     text_clip.highlight_color = "#ffcc00"
     text_clip.word_timings = [
         WordTiming(start_seconds=text_clip.timeline_start, end_seconds=text_clip.timeline_start + 0.4, text="Open"),
@@ -119,11 +86,6 @@ def test_project_service_roundtrip_sticker_and_word_timings(tmp_path) -> None:
     service = ProjectService()
     service.save_project(project, str(save_path))
     loaded = service.load_project(str(save_path))
-
-    loaded_video_track = next(track for track in loaded.timeline.tracks if track.track_id == video_track.track_id)
-    loaded_sticker = next(clip for clip in loaded_video_track.clips if clip.clip_id == "sticker_clip")
-    assert isinstance(loaded_sticker, StickerClip)
-    assert loaded_sticker.scale == pytest.approx(0.4)
 
     loaded_text_track = next(track for track in loaded.timeline.tracks if track.track_id == text_track.track_id)
     loaded_text = next(clip for clip in loaded_text_track.clips if clip.clip_id == text_clip.clip_id)
@@ -151,29 +113,6 @@ def test_project_service_roundtrip_video_speed_keyframes(tmp_path) -> None:
     assert isinstance(loaded_clip, VideoClip)
     assert len(loaded_clip.playback_speed_keyframes) == 2
     assert loaded_clip.playback_speed_keyframes[1].value == pytest.approx(0.5)
-
-
-def test_timeline_controller_add_sticker(qapp: QApplication) -> None:
-    _ = qapp
-    controller = AppController()
-    controller.project_controller.load_demo_project()
-    timeline = controller.project_controller.active_project().timeline
-    video_track = next(track for track in timeline.tracks if track.track_type == "video")
-
-    clip_id = controller.timeline_controller.add_sticker(
-        track_id=video_track.track_id,
-        sticker_path="ui/resources/stickers/heart.png",
-        timeline_start=1.0,
-        duration_seconds=1.5,
-    )
-    assert clip_id is not None
-    created = None
-    for track in timeline.tracks:
-        created = next((clip for clip in track.clips if clip.clip_id == clip_id), None)
-        if created is not None:
-            break
-    assert isinstance(created, StickerClip)
-    assert created.sticker_path.endswith("heart.png")
 
 
 def test_timeline_controller_set_track_role(qapp: QApplication) -> None:

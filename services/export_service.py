@@ -14,7 +14,6 @@ from typing import TextIO
 from app.domain.clips.audio_clip import AudioClip
 from app.domain.clips.base_clip import BaseClip
 from app.domain.clips.image_clip import ImageClip
-from app.domain.clips.sticker_clip import StickerClip
 from app.domain.clips.text_clip import TextClip
 from app.domain.clips.video_clip import VideoClip
 from app.domain.media_asset import MediaAsset
@@ -181,7 +180,7 @@ class ExportService:
                     continue
 
                 media_asset = self._resolve_media_asset(project, clip.media_id)
-                if isinstance(clip, (VideoClip, ImageClip, StickerClip)):
+                if isinstance(clip, (VideoClip, ImageClip)):
                     prepared_clip, input_index = self._append_visual_input(
                         command,
                         input_index,
@@ -531,7 +530,7 @@ class ExportService:
 
     @staticmethod
     def _transform_adjust_filters_for_clip(clip: BaseClip, project: Project) -> list[str]:
-        if not isinstance(clip, (VideoClip, ImageClip, StickerClip)):
+        if not isinstance(clip, (VideoClip, ImageClip)):
             return []
 
         project_width = max(16, int(project.width))
@@ -573,27 +572,6 @@ class ExportService:
                 f"scale={project_width}:{project_height}:force_original_aspect_ratio=decrease"
             )
             filters.append(f"pad={project_width}:{project_height}:(ow-iw)/2:(oh-ih)/2:color=#00000000")
-
-        eq_parts: list[str] = []
-        brightness = max(-1.0, min(1.0, float(getattr(clip, "brightness", 0.0))))
-        contrast = max(-1.0, min(1.0, float(getattr(clip, "contrast", 0.0))))
-        saturation = max(-1.0, min(1.0, float(getattr(clip, "saturation", 0.0))))
-        if abs(brightness) > 1e-6:
-            eq_parts.append(f"brightness={brightness:.6f}")
-        if abs(contrast) > 1e-6:
-            eq_parts.append(f"contrast={1.0 + contrast:.6f}")
-        if abs(saturation) > 1e-6:
-            eq_parts.append(f"saturation={1.0 + saturation:.6f}")
-        if eq_parts:
-            filters.append("eq=" + ":".join(eq_parts))
-
-        blur = max(0.0, min(1.0, float(getattr(clip, "blur", 0.0))))
-        if blur > 1e-6:
-            filters.append(f"gblur=sigma={max(0.2, blur * 14.0):.6f}:steps=1")
-
-        vignette = max(0.0, min(1.0, float(getattr(clip, "vignette", 0.0))))
-        if vignette > 1e-6:
-            filters.append(f"vignette=angle={max(0.02, vignette * 1.57):.6f}")
 
         opacity = max(0.0, min(1.0, float(getattr(clip, "opacity", 1.0))))
         if clip_has_keyframes(clip, "opacity"):
@@ -703,40 +681,6 @@ class ExportService:
         warnings: list[str],
     ) -> tuple[_PreparedClip, int]:
         duration = max(clip.duration, 0.001)
-        if isinstance(clip, StickerClip):
-            sticker_path = Path(clip.sticker_path).expanduser()
-            if not sticker_path.is_absolute():
-                if project_root is not None:
-                    sticker_path = (project_root / sticker_path).resolve()
-                else:
-                    sticker_path = sticker_path.resolve()
-            if not sticker_path.exists() or not sticker_path.is_file():
-                warnings.append(f"Missing sticker for clip '{clip.name}'; using placeholder video.")
-                command.extend(
-                    [
-                        "-f",
-                        "lavfi",
-                        "-i",
-                        f"color=c=gray:s={project.width}x{project.height}:r={fps:.6f}:d={duration:.6f}",
-                    ]
-                )
-                return _PreparedClip(
-                    clip=clip,
-                    input_index=input_index,
-                    placeholder=True,
-                    source_start=0.0,
-                    source_end=duration,
-                ), input_index + 1
-
-            command.extend(["-loop", "1", "-i", str(sticker_path)])
-            return _PreparedClip(
-                clip=clip,
-                input_index=input_index,
-                placeholder=False,
-                source_start=0.0,
-                source_end=duration,
-            ), input_index + 1
-
         source_start, source_end = self._clip_source_bounds(clip, placeholder=media_asset is None)
 
         if not self._media_file_exists(media_asset, project_root):

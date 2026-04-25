@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from app.controllers.app_controller import AppController
 from app.ui.inspector.inspector_panel import InspectorPanel
-from app.ui.media_panel.media_panel import MediaPanel
 from app.ui.preview.preview_widget import PreviewWidget
 from app.ui.sidebar.left_rail import LeftRail
 from app.ui.sidebar.left_sidebar_stack import LeftSidebarStack
@@ -27,11 +26,6 @@ class AppShell(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
 
         # Sprint 9 top area: LeftRail | LeftSidebarStack | Preview | Inspector
-        self.media_panel = MediaPanel(
-            self._app_controller.project_controller,
-            self,
-            thumbnail_service=self._app_controller.thumbnail_service,
-        )
         self.preview_widget = PreviewWidget(
             playback_controller=self._app_controller.playback_controller,
             project_controller=self._app_controller.project_controller,
@@ -48,7 +42,8 @@ class AppShell(QWidget):
         left_sidebar_layout.setSpacing(0)
 
         self.left_rail = LeftRail(self)
-        self.left_sidebar_stack = LeftSidebarStack(self.media_panel, self)
+        self.left_sidebar_stack = LeftSidebarStack(self._app_controller, self)
+        self.media_panel = self.left_sidebar_stack.media_panel
         self.left_rail.category_selected.connect(self.left_sidebar_stack.show_category)
 
         rail_strip = QWidget(left_sidebar)

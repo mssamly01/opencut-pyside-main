@@ -6,17 +6,13 @@ from pathlib import Path
 from app.controllers.app_controller import AppController
 from app.infrastructure.logging_config import default_log_directory
 from app.ui.app_shell import AppShell
-from app.ui.captions_panel import CaptionsPanel
 from app.ui.dialogs.export_dialog import ExportDialog
-from app.ui.effects_drawer import EffectsDrawer
 from app.ui.shared.icons import build_icon, icon_size
-from app.ui.sticker_drawer import StickerDrawer
 from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
-    QDockWidget,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -39,12 +35,6 @@ class MainWindow(QMainWindow):
         self._dirty_label: QLabel | None = None
         self._timecode_label: QLabel | None = None
         self._project_info_label: QLabel | None = None
-        self._captions_dock: QDockWidget | None = None
-        self._effects_dock: QDockWidget | None = None
-        self._sticker_dock: QDockWidget | None = None
-        self._captions_toggle_action: QAction | None = None
-        self._effects_toggle_action: QAction | None = None
-        self._sticker_toggle_action: QAction | None = None
         self._menu_bar_icon_strip: QWidget | None = None
 
         self.setWindowTitle("OpenCut PySide")
@@ -53,10 +43,6 @@ class MainWindow(QMainWindow):
         self._app_shell = AppShell(app_controller=self._app_controller)
         self.setCentralWidget(self._app_shell)
 
-        self._captions_dock = self._build_captions_dock()
-        self._effects_dock = self._build_effects_dock()
-        self._sticker_dock = self._build_sticker_dock()
-        self._build_dock_toggle_actions()
         self._build_menu_bar()
         self._build_main_toolbar()
         self._build_status_bar()
@@ -277,25 +263,10 @@ class MainWindow(QMainWindow):
                 shortcut="Ctrl+0",
             )
         )
-        view_menu.addSeparator()
-        if self._sticker_toggle_action is not None:
-            view_menu.addAction(self._sticker_toggle_action)
-        if self._effects_toggle_action is not None:
-            view_menu.addAction(self._effects_toggle_action)
-        if self._captions_toggle_action is not None:
-            view_menu.addAction(self._captions_toggle_action)
-
-        clip_menu: QMenu = menu_bar.addMenu("&Clip")
-        clip_menu.addAction(self._make_action("text", "Add Text", self._on_add_text_triggered, shortcut="Ctrl+Shift+T"))
         self._build_menu_bar_icon_strip(menu_bar)
 
     def _build_menu_bar_icon_strip(self, menu_bar: QMenuBar) -> None:
-        actions = [
-            self._sticker_toggle_action,
-            self._effects_toggle_action,
-            self._captions_toggle_action,
-            self._export_action,
-        ]
+        actions = [self._export_action]
         visible_actions = [action for action in actions if action is not None]
         if not visible_actions:
             return
@@ -394,58 +365,6 @@ class MainWindow(QMainWindow):
         status_bar.addWidget(self._project_info_label, 1)
         status_bar.addPermanentWidget(self._timecode_label)
 
-    def _build_captions_dock(self) -> QDockWidget:
-        dock = QDockWidget("Captions", self)
-        dock.setObjectName("CaptionsDock")
-        dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
-        dock.setWidget(CaptionsPanel(self._app_controller, dock))
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
-        dock.hide()
-        return dock
-
-    def _build_effects_dock(self) -> QDockWidget:
-        dock = QDockWidget("Effects", self)
-        dock.setObjectName("EffectsDock")
-        dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
-        dock.setWidget(EffectsDrawer(self._app_controller, dock))
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
-        dock.hide()
-        return dock
-
-    def _build_sticker_dock(self) -> QDockWidget:
-        dock = QDockWidget("Stickers", self)
-        dock.setObjectName("StickersDock")
-        dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
-        dock.setWidget(StickerDrawer(dock))
-        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, dock)
-        dock.hide()
-        return dock
-
-    def _build_dock_toggle_actions(self) -> None:
-        if self._sticker_dock is not None:
-            action = self._sticker_dock.toggleViewAction()
-            action.setText("Show Stickers")
-            action.setIcon(build_icon("sticker"))
-            action.setShortcut(QKeySequence("Ctrl+Alt+S"))
-            action.setToolTip("Show/Hide Stickers (Ctrl+Alt+S)")
-            self._sticker_toggle_action = action
-
-        if self._effects_dock is not None:
-            action = self._effects_dock.toggleViewAction()
-            action.setText("Show Effects")
-            action.setIcon(build_icon("magic"))
-            action.setShortcut(QKeySequence("Ctrl+Alt+E"))
-            action.setToolTip("Show/Hide Effects (Ctrl+Alt+E)")
-            self._effects_toggle_action = action
-
-        if self._captions_dock is not None:
-            action = self._captions_dock.toggleViewAction()
-            action.setText("Show Captions")
-            action.setIcon(build_icon("subtitle"))
-            action.setShortcut(QKeySequence("Ctrl+Alt+C"))
-            action.setToolTip("Show/Hide Captions (Ctrl+Alt+C)")
-            self._captions_toggle_action = action
-
     def _on_undo_triggered(self) -> None:
         self._app_controller.timeline_controller.undo()
 
@@ -466,9 +385,6 @@ class MainWindow(QMainWindow):
 
     def _on_next_frame_triggered(self) -> None:
         self._app_controller.playback_controller.nudge_frames(1)
-
-    def _on_add_text_triggered(self) -> None:
-        self._app_controller.timeline_controller.add_text_clip()
 
     def _on_new_project_triggered(self) -> None:
         if not self._confirm_discard_unsaved_changes("create a new project"):

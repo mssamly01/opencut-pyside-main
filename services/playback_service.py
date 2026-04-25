@@ -6,7 +6,6 @@ from pathlib import Path
 
 from app.domain.clips.base_clip import BaseClip
 from app.domain.clips.image_clip import ImageClip
-from app.domain.clips.sticker_clip import StickerClip
 from app.domain.clips.text_clip import TextClip
 from app.domain.clips.video_clip import VideoClip
 from app.domain.media_asset import MediaAsset
@@ -51,19 +50,6 @@ class PlaybackService:
 
         if isinstance(active_clip, TextClip):
             return self._render_text_clip(active_clip, project, current_time=time_seconds)
-
-        if isinstance(active_clip, StickerClip):
-            sticker_path = Path(active_clip.sticker_path).expanduser()
-            if not sticker_path.is_absolute():
-                project_root = self._project_root(project_path)
-                if project_root is not None:
-                    sticker_path = (project_root / sticker_path).resolve()
-                else:
-                    sticker_path = sticker_path.resolve()
-            image_bytes = self._load_image_bytes(sticker_path)
-            if image_bytes is None:
-                return PreviewFrameResult(frame_bytes=None, message="Unable to load sticker")
-            return PreviewFrameResult(frame_bytes=image_bytes, message=active_clip.name or "Sticker")
 
         media_asset = self._find_media_asset(project, active_clip.media_id)
         if media_asset is None:
@@ -117,7 +103,7 @@ class PlaybackService:
             if track.is_hidden or track.is_muted:
                 continue
             for clip in reversed(track.sorted_clips()):
-                if not isinstance(clip, (VideoClip, ImageClip, TextClip, StickerClip)):
+                if not isinstance(clip, (VideoClip, ImageClip, TextClip)):
                     continue
                 if clip.is_muted:
                     continue

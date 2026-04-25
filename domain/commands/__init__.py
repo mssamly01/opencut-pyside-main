@@ -1,6 +1,5 @@
 from app.domain.commands.add_clip import AddClipCommand
 from app.domain.commands.add_keyframe import AddKeyframeCommand
-from app.domain.commands.add_sticker_clip import AddStickerClipCommand
 from app.domain.commands.add_track import AddTrackCommand
 from app.domain.commands.add_transition import AddTransitionCommand
 from app.domain.commands.base_command import BaseCommand
@@ -26,7 +25,6 @@ __all__ = [
     "AddTrackCommand",
     "AddClipCommand",
     "AddKeyframeCommand",
-    "AddStickerClipCommand",
     "AddTransitionCommand",
     "BaseCommand",
     "ChangeTransitionTypeCommand",

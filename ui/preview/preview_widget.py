@@ -9,7 +9,6 @@ from app.controllers.selection_controller import SelectionController
 from app.controllers.timeline_controller import TimelineController
 from app.domain.clips.base_clip import BaseClip
 from app.domain.clips.image_clip import ImageClip
-from app.domain.clips.sticker_clip import StickerClip
 from app.domain.clips.text_clip import TextClip
 from app.domain.clips.video_clip import VideoClip
 from app.services.keyframe_evaluator import resolve_clip_value_at
@@ -114,7 +113,7 @@ class _PreviewCanvas(QWidget):
             draw_x = project_rect.x() + (project_rect.width() - scaled.width()) / 2.0
             draw_y = project_rect.y() + (project_rect.height() - scaled.height()) / 2.0
             clip = self._currently_rendered_clip()
-            if clip is not None and isinstance(clip, (VideoClip, ImageClip, StickerClip)):
+            if clip is not None and isinstance(clip, (VideoClip, ImageClip)):
                 time_in_clip = max(
                     0.0,
                     min(float(clip.duration), self._current_time - float(clip.timeline_start)),
@@ -343,7 +342,7 @@ class _PreviewCanvas(QWidget):
         clip = self._clip_by_id(clip_id)
         if clip is None:
             return None
-        if not isinstance(clip, (VideoClip, ImageClip, StickerClip, TextClip)):
+        if not isinstance(clip, (VideoClip, ImageClip, TextClip)):
             return None
         if not hasattr(clip, "position_x") or not hasattr(clip, "position_y"):
             return None
@@ -360,7 +359,7 @@ class _PreviewCanvas(QWidget):
             for clip in reversed(track.sorted_clips()):
                 if clip.is_muted:
                     continue
-                if not isinstance(clip, (VideoClip, ImageClip, StickerClip, TextClip)):
+                if not isinstance(clip, (VideoClip, ImageClip, TextClip)):
                     continue
                 if clip.timeline_start <= current_time < (clip.timeline_start + clip.duration):
                     return clip

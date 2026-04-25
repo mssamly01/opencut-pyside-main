@@ -10,13 +10,9 @@ from PySide6.QtWidgets import QButtonGroup, QHBoxLayout, QToolButton, QWidget
 RAIL_CATEGORIES: list[tuple[str, str, str]] = [
     ("media", "Phuong tien", "rail-media"),
     ("audio", "Am thanh", "rail-audio"),
-    ("text", "Van ban", "rail-text"),
-    ("sticker", "Nhan dan", "rail-sticker"),
     ("effects", "Hieu ung", "rail-effects"),
     ("transitions", "Chuyen tiep", "rail-transitions"),
     ("captions", "Phu de", "rail-captions"),
-    ("filters", "Bo loc", "rail-filters"),
-    ("adjust", "Dieu chinh", "rail-adjust"),
 ]
 
 _BUTTON_WIDTH = 80

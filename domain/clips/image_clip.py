@@ -12,12 +12,6 @@ class ImageClip(BaseClip):
     position_x: float = 0.5
     position_y: float = 0.5
     rotation: float = 0.0
-    brightness: float = 0.0
-    contrast: float = 0.0
-    saturation: float = 0.0
-    blur: float = 0.0
-    vignette: float = 0.0
-    color_preset: str = "none"
     position_x_keyframes: list[Keyframe] = field(default_factory=list)
     position_y_keyframes: list[Keyframe] = field(default_factory=list)
     scale_keyframes: list[Keyframe] = field(default_factory=list)

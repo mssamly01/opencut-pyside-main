@@ -7,7 +7,6 @@ from typing import Any
 from app.domain.clips.audio_clip import AudioClip
 from app.domain.clips.base_clip import BaseClip
 from app.domain.clips.image_clip import ImageClip
-from app.domain.clips.sticker_clip import StickerClip
 from app.domain.clips.text_clip import TextClip
 from app.domain.clips.video_clip import VideoClip
 from app.domain.keyframe import Keyframe
@@ -202,27 +201,11 @@ class ProjectService:
             payload["position_y"] = clip.position_y
             payload["scale"] = clip.scale
             payload["rotation"] = clip.rotation
-            payload["brightness"] = clip.brightness
-            payload["contrast"] = clip.contrast
-            payload["saturation"] = clip.saturation
-            payload["blur"] = clip.blur
-            payload["vignette"] = clip.vignette
-            payload["color_preset"] = clip.color_preset
             payload["position_x_keyframes"] = self._keyframes_to_dict(clip.position_x_keyframes)
             payload["position_y_keyframes"] = self._keyframes_to_dict(clip.position_y_keyframes)
             payload["scale_keyframes"] = self._keyframes_to_dict(clip.scale_keyframes)
             payload["rotation_keyframes"] = self._keyframes_to_dict(clip.rotation_keyframes)
             payload["playback_speed_keyframes"] = self._keyframes_to_dict(clip.playback_speed_keyframes)
-        elif isinstance(clip, StickerClip):
-            payload["sticker_path"] = clip.sticker_path
-            payload["scale"] = clip.scale
-            payload["position_x"] = clip.position_x
-            payload["position_y"] = clip.position_y
-            payload["rotation"] = clip.rotation
-            payload["position_x_keyframes"] = self._keyframes_to_dict(clip.position_x_keyframes)
-            payload["position_y_keyframes"] = self._keyframes_to_dict(clip.position_y_keyframes)
-            payload["scale_keyframes"] = self._keyframes_to_dict(clip.scale_keyframes)
-            payload["rotation_keyframes"] = self._keyframes_to_dict(clip.rotation_keyframes)
         elif isinstance(clip, AudioClip):
             payload["gain_db"] = clip.gain_db
             payload["playback_speed"] = clip.playback_speed
@@ -232,12 +215,6 @@ class ProjectService:
             payload["position_x"] = clip.position_x
             payload["position_y"] = clip.position_y
             payload["rotation"] = clip.rotation
-            payload["brightness"] = clip.brightness
-            payload["contrast"] = clip.contrast
-            payload["saturation"] = clip.saturation
-            payload["blur"] = clip.blur
-            payload["vignette"] = clip.vignette
-            payload["color_preset"] = clip.color_preset
             payload["position_x_keyframes"] = self._keyframes_to_dict(clip.position_x_keyframes)
             payload["position_y_keyframes"] = self._keyframes_to_dict(clip.position_y_keyframes)
             payload["scale_keyframes"] = self._keyframes_to_dict(clip.scale_keyframes)
@@ -304,30 +281,11 @@ class ProjectService:
                 position_y=self._read_float(payload, "position_y", default=0.5),
                 scale=self._read_float(payload, "scale", default=1.0),
                 rotation=self._read_float(payload, "rotation", default=0.0),
-                brightness=self._read_float(payload, "brightness", default=0.0),
-                contrast=self._read_float(payload, "contrast", default=0.0),
-                saturation=self._read_float(payload, "saturation", default=0.0),
-                blur=self._read_float(payload, "blur", default=0.0),
-                vignette=self._read_float(payload, "vignette", default=0.0),
-                color_preset=self._read_str(payload, "color_preset", default="none"),
                 position_x_keyframes=self._keyframes_from_payload(payload.get("position_x_keyframes")),
                 position_y_keyframes=self._keyframes_from_payload(payload.get("position_y_keyframes")),
                 scale_keyframes=self._keyframes_from_payload(payload.get("scale_keyframes")),
                 rotation_keyframes=self._keyframes_from_payload(payload.get("rotation_keyframes")),
                 playback_speed_keyframes=self._keyframes_from_payload(payload.get("playback_speed_keyframes")),
-            )
-        if clip_type == "sticker":
-            return StickerClip(
-                **base_kwargs,
-                sticker_path=self._read_str(payload, "sticker_path", default=""),
-                scale=self._read_float(payload, "scale", default=0.35),
-                position_x=self._read_float(payload, "position_x", default=0.5),
-                position_y=self._read_float(payload, "position_y", default=0.5),
-                rotation=self._read_float(payload, "rotation", default=0.0),
-                position_x_keyframes=self._keyframes_from_payload(payload.get("position_x_keyframes")),
-                position_y_keyframes=self._keyframes_from_payload(payload.get("position_y_keyframes")),
-                scale_keyframes=self._keyframes_from_payload(payload.get("scale_keyframes")),
-                rotation_keyframes=self._keyframes_from_payload(payload.get("rotation_keyframes")),
             )
         if clip_type == "audio":
             return AudioClip(
@@ -343,12 +301,6 @@ class ProjectService:
                 position_x=self._read_float(payload, "position_x", default=0.5),
                 position_y=self._read_float(payload, "position_y", default=0.5),
                 rotation=self._read_float(payload, "rotation", default=0.0),
-                brightness=self._read_float(payload, "brightness", default=0.0),
-                contrast=self._read_float(payload, "contrast", default=0.0),
-                saturation=self._read_float(payload, "saturation", default=0.0),
-                blur=self._read_float(payload, "blur", default=0.0),
-                vignette=self._read_float(payload, "vignette", default=0.0),
-                color_preset=self._read_str(payload, "color_preset", default="none"),
                 position_x_keyframes=self._keyframes_from_payload(payload.get("position_x_keyframes")),
                 position_y_keyframes=self._keyframes_from_payload(payload.get("position_y_keyframes")),
                 scale_keyframes=self._keyframes_from_payload(payload.get("scale_keyframes")),
@@ -382,7 +334,7 @@ class ProjectService:
                 highlight_color=self._read_str(payload, "highlight_color", default="#ffd166"),
                 word_timings=self._word_timings_from_payload(payload.get("word_timings")),
             )
-        raise ValueError(f"Invalid project file: unsupported clip_type '{clip_type}'")
+        return BaseClip(**base_kwargs)
 
     @staticmethod
     def _clip_type_name(clip: BaseClip) -> str:
@@ -392,8 +344,6 @@ class ProjectService:
             return "audio"
         if isinstance(clip, ImageClip):
             return "image"
-        if isinstance(clip, StickerClip):
-            return "sticker"
         if isinstance(clip, TextClip):
             return "text"
         return "base"

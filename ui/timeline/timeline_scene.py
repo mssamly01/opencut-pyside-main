@@ -2,12 +2,10 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from pathlib import Path
 
 from app.domain.clips.audio_clip import AudioClip
 from app.domain.clips.base_clip import BaseClip
 from app.domain.clips.image_clip import ImageClip
-from app.domain.clips.sticker_clip import StickerClip
 from app.domain.clips.text_clip import TextClip
 from app.domain.clips.video_clip import VideoClip
 from app.domain.project import Project
@@ -341,18 +339,6 @@ class TimelineScene(QGraphicsScene):
                     pixmap = QPixmap()
                     if pixmap.loadFromData(thumbnail_bytes):
                         thumbnails.append(pixmap)
-            elif isinstance(clip, StickerClip):
-                sticker_path = Path(clip.sticker_path).expanduser()
-                if not sticker_path.is_absolute():
-                    if self._project_path is not None:
-                        project_ref = Path(self._project_path).expanduser().resolve()
-                        project_root = project_ref if project_ref.is_dir() else project_ref.parent
-                        sticker_path = (project_root / sticker_path).resolve()
-                    else:
-                        sticker_path = sticker_path.resolve()
-                pixmap = QPixmap(str(sticker_path))
-                if not pixmap.isNull():
-                    thumbnails.append(pixmap)
 
             peaks: list[float] = []
             if self._project is not None and self._waveform_service is not None and isinstance(clip, (AudioClip, VideoClip)):
@@ -413,8 +399,6 @@ class TimelineScene(QGraphicsScene):
     def _clip_color(clip: BaseClip) -> str:
         if isinstance(clip, VideoClip):
             return "#3f6bb8"
-        if isinstance(clip, StickerClip):
-            return "#7d65d4"
         if isinstance(clip, ImageClip):
             return "#a85fb8"
         if isinstance(clip, TextClip):

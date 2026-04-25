@@ -78,7 +78,7 @@ def test_delete_selected_clip_removes_multiple_clips() -> None:
     assert selection_controller.selected_clip_ids() == []
 
 
-def test_set_clip_transform_and_adjustments_and_preset() -> None:
+def test_set_clip_transform_updates_visual_fields() -> None:
     timeline_controller, _selection_controller, project_controller = _wired_controllers()
     project = project_controller.active_project()
     assert project is not None
@@ -106,18 +106,6 @@ def test_set_clip_transform_and_adjustments_and_preset() -> None:
     assert abs(float(getattr(clip_after, "position_y", 0.0)) - 0.18) < 1e-6
     assert abs(float(getattr(clip_after, "scale", 0.0)) - 1.8) < 1e-6
 
-    assert timeline_controller.set_clip_adjustments(
-        clip.clip_id,
-        brightness=0.2,
-        contrast=-0.1,
-        saturation=0.3,
-        blur=0.2,
-        vignette=0.4,
-    )
-    assert timeline_controller.apply_clip_color_preset(clip.clip_id, "bw")
-    assert getattr(clip_after, "color_preset", "") == "bw"
-    assert abs(float(getattr(clip_after, "saturation", 0.0)) + 1.0) < 1e-6
-
 
 def test_project_service_roundtrip_transform_fields(tmp_path) -> None:
     project = build_demo_project()
@@ -131,12 +119,6 @@ def test_project_service_roundtrip_transform_fields(tmp_path) -> None:
     clip.position_y = 0.11
     clip.scale = 1.4
     clip.rotation = 14.0
-    clip.brightness = 0.2
-    clip.contrast = 0.3
-    clip.saturation = -0.2
-    clip.blur = 0.1
-    clip.vignette = 0.5
-    clip.color_preset = "sepia"
 
     service = ProjectService()
     target = tmp_path / "roundtrip.json"
@@ -153,8 +135,6 @@ def test_project_service_roundtrip_transform_fields(tmp_path) -> None:
     assert loaded_clip.position_y == 0.11
     assert loaded_clip.scale == 1.4
     assert loaded_clip.rotation == 14.0
-    assert loaded_clip.color_preset == "sepia"
-    assert loaded_clip.vignette == 0.5
 
 
 def test_export_service_build_command_respects_options() -> None:

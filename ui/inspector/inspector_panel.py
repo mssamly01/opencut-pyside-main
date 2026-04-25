@@ -3,11 +3,9 @@ from __future__ import annotations
 from app.controllers.app_controller import AppController
 from app.domain.clips.audio_clip import AudioClip
 from app.domain.clips.image_clip import ImageClip
-from app.domain.clips.sticker_clip import StickerClip
 from app.domain.clips.text_clip import TextClip
 from app.domain.clips.video_clip import VideoClip
 from app.ui.inspector.audio_inspector import AudioInspector
-from app.ui.inspector.clip_inspector_tabs import ClipInspectorTabs
 from app.ui.inspector.image_inspector import ImageInspector
 from app.ui.inspector.project_inspector import ProjectInspector
 from app.ui.inspector.text_inspector import TextInspector
@@ -105,15 +103,7 @@ class InspectorPanel(QWidget):
                 return
 
         basic_widget = widget_type(self._app_controller.timeline_controller, clip, self)
-        tabs = ClipInspectorTabs(
-            self._app_controller.timeline_controller,
-            self._app_controller.playback_controller,
-            basic_widget,
-            clip,
-            self,
-        )
-        tabs._clip_basic_type = widget_type  # type: ignore[attr-defined]
-        self._swap_clip_widget(tabs, widget_type=widget_type)
+        self._swap_clip_widget(basic_widget, widget_type=widget_type)
 
     def _swap_clip_widget(self, widget: QWidget | None, widget_type: type[QWidget] | None = None) -> None:
         while self._clip_container_layout.count():
@@ -158,7 +148,7 @@ class InspectorPanel(QWidget):
             return VideoInspector
         if isinstance(clip, AudioClip):
             return AudioInspector
-        if isinstance(clip, (ImageClip, StickerClip)):
+        if isinstance(clip, ImageClip):
             return ImageInspector
         if isinstance(clip, TextClip):
             return TextInspector
