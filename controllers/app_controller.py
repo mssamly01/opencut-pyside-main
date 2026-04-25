@@ -14,6 +14,7 @@ from app.services.playback_service import PlaybackService
 from app.services.project_service import ProjectService
 from app.services.settings_service import SettingsService
 from app.services.thumbnail_service import ThumbnailService
+from app.services.waveform_loader import WaveformLoader
 from app.services.waveform_service import WaveformService
 from PySide6.QtCore import QObject, QTimer, Signal
 
@@ -36,6 +37,7 @@ class AppController(QObject):
         self.export_service = ExportService()
         self.thumbnail_service = ThumbnailService()
         self.waveform_service = WaveformService()
+        self.waveform_loader = WaveformLoader(self.waveform_service, self)
         self.settings_service = SettingsService()
         self.autosave_service = AutosaveService(project_service=self.project_service)
         self.project_controller = ProjectController(

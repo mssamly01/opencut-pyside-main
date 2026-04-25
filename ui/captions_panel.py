@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from app.controllers.app_controller import AppController
 from app.domain.clips.text_clip import TextClip
-from PySide6.QtCore import Qt
+from app.ui.captions_row_widget import CaptionRowWidget
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
     QHBoxLayout,
-    QInputDialog,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
@@ -74,9 +74,16 @@ class CaptionsPanel(QWidget):
             self._list_widget.clear()
             self._clip_ids = []
             for clip in self._app_controller.timeline_controller.caption_clips():
-                label = self._format_label(clip)
-                item = QListWidgetItem(label, self._list_widget)
+                item = QListWidgetItem(self._list_widget)
                 item.setData(Qt.ItemDataRole.UserRole, clip.clip_id)
+                item.setSizeHint(QSize(0, 32))
+                row_widget = CaptionRowWidget(
+                    clip=clip,
+                    timestamp_label=self._format_timestamp_range(clip),
+                    commit_callback=self._commit_caption_text,
+                    parent=self._list_widget,
+                )
+                self._list_widget.setItemWidget(item, row_widget)
                 self._clip_ids.append(clip.clip_id)
             self._sync_selection_from_controller()
         finally:
@@ -107,21 +114,11 @@ class CaptionsPanel(QWidget):
             self._app_controller.playback_controller.seek(clip.timeline_start)
 
     def _on_item_double_clicked(self, item: QListWidgetItem) -> None:
-        clip_id = item.data(Qt.ItemDataRole.UserRole)
-        if not isinstance(clip_id, str):
-            return
-        clip = self._find_clip(clip_id)
-        if not isinstance(clip, TextClip):
-            return
+        row_widget = self._list_widget.itemWidget(item)
+        if isinstance(row_widget, CaptionRowWidget):
+            row_widget.begin_edit()
 
-        new_text, accepted = QInputDialog.getMultiLineText(
-            self,
-            "Edit Caption",
-            "Caption text:",
-            clip.content,
-        )
-        if not accepted:
-            return
+    def _commit_caption_text(self, clip_id: str, new_text: str) -> None:
         self._app_controller.timeline_controller.update_caption_text(clip_id, new_text)
 
     def _on_split_clicked(self) -> None:
@@ -183,13 +180,10 @@ class CaptionsPanel(QWidget):
         return None
 
     @staticmethod
-    def _format_label(clip: TextClip) -> str:
+    def _format_timestamp_range(clip: TextClip) -> str:
         start = clip.timeline_start
         end = clip.timeline_start + clip.duration
-        snippet = (clip.content or "").replace("\n", " / ").strip()
-        if len(snippet) > 60:
-            snippet = f"{snippet[:57]}..."
-        return f"[{CaptionsPanel._format_timestamp(start)} - {CaptionsPanel._format_timestamp(end)}]  {snippet}"
+        return f"[{CaptionsPanel._format_timestamp(start)} - {CaptionsPanel._format_timestamp(end)}]"
 
     @staticmethod
     def _format_timestamp(seconds: float) -> str:

@@ -3,7 +3,7 @@ from __future__ import annotations
 from app.controllers.playback_controller import PlaybackController
 from app.ui.shared.icons import build_icon
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
+from PySide6.QtWidgets import QLabel, QPushButton, QWidget
 
 
 class PlaybackTimeLabel(QLabel):

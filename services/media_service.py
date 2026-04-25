@@ -42,25 +42,27 @@ class MediaService:
         file_size_bytes = resolved_path.stat().st_size
         media_id = f"media_{uuid4().hex[:10]}"
 
-        duration_seconds = self._probe_duration(str(resolved_path), media_type)
+        probe_result = self._probe_media(str(resolved_path), media_type)
 
         return MediaAsset(
             media_id=media_id,
             name=resolved_path.stem,
             file_path=str(resolved_path),
             media_type=media_type,
-            duration_seconds=duration_seconds,
+            duration_seconds=probe_result.duration_seconds if probe_result else None,
             file_size_bytes=file_size_bytes,
+            width=probe_result.width if probe_result else None,
+            height=probe_result.height if probe_result else None,
+            video_codec=probe_result.video_codec if probe_result else None,
+            audio_codec=probe_result.audio_codec if probe_result else None,
+            fps=probe_result.fps if probe_result else None,
+            sample_rate=probe_result.sample_rate if probe_result else None,
         )
 
-    def _probe_duration(self, resolved_path: str, media_type: str) -> float | None:
+    def _probe_media(self, resolved_path: str, media_type: str):
         if media_type not in {"video", "audio"}:
             return None
-
-        probe_result = self._ffprobe_gateway.probe(resolved_path)
-        if probe_result is None:
-            return None
-        return probe_result.duration_seconds
+        return self._ffprobe_gateway.probe(resolved_path)
 
     def _infer_media_type(self, extension: str) -> str:
         if extension in self._VIDEO_EXTENSIONS:

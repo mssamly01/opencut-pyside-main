@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,12 @@ from app.domain.timeline import Timeline
 from app.domain.track import Track
 from app.domain.transition import Transition
 from app.domain.word_timing import WordTiming
+
+logger = logging.getLogger(__name__)
+
+_LEGACY_CLIP_TYPES = frozenset({"sticker"})
+_LEGACY_TRACK_TYPES = frozenset({"sticker"})
+_LEGACY_MEDIA_TYPES = frozenset({"sticker"})
 
 
 class ProjectService:
@@ -70,7 +77,15 @@ class ProjectService:
             height=self._read_int(payload, "height"),
             fps=self._read_float(payload, "fps"),
             timeline=self._timeline_from_dict(timeline_data),
-            media_items=[self._media_asset_from_dict(item) for item in media_items_data if isinstance(item, dict)],
+            media_items=[
+                media_asset
+                for media_asset in (
+                    self._media_asset_from_dict(item)
+                    for item in media_items_data
+                    if isinstance(item, dict)
+                )
+                if media_asset is not None
+            ],
             version=self._read_str(payload, "version", default="0.1.0"),
         )
         if legacy_format_version == "1.0":
@@ -105,7 +120,15 @@ class ProjectService:
         if not isinstance(tracks_payload, list):
             raise ValueError("Invalid project file: timeline.tracks must be a list")
         return Timeline(
-            tracks=[self._track_from_dict(track_payload) for track_payload in tracks_payload if isinstance(track_payload, dict)],
+            tracks=[
+                track
+                for track in (
+                    self._track_from_dict(track_payload)
+                    for track_payload in tracks_payload
+                    if isinstance(track_payload, dict)
+                )
+                if track is not None
+            ],
         )
 
     def _track_to_dict(self, track: Track) -> dict[str, Any]:
@@ -131,8 +154,16 @@ class ProjectService:
             ],
         }
 
-    def _track_from_dict(self, payload: dict[str, Any]) -> Track:
+    def _track_from_dict(self, payload: dict[str, Any]) -> Track | None:
         track_id = self._read_str(payload, "track_id")
+        track_type_raw = self._read_str(payload, "track_type", default="").lower()
+        if track_type_raw in _LEGACY_TRACK_TYPES:
+            logger.info(
+                "ProjectService: skipping legacy track type '%s' (track_id=%s)",
+                track_type_raw,
+                track_id,
+            )
+            return None
         clips_payload = payload.get("clips", [])
         if not isinstance(clips_payload, list):
             raise ValueError("Invalid project file: track.clips must be a list")
@@ -171,7 +202,15 @@ class ProjectService:
             is_locked=self._read_bool(payload, "is_locked", default=False),
             is_hidden=self._read_bool(payload, "is_hidden", default=False),
             height=self._read_float(payload, "height", default=58.0),
-            clips=[self._clip_from_dict(clip_payload, track_id) for clip_payload in clips_payload if isinstance(clip_payload, dict)],
+            clips=[
+                clip
+                for clip in (
+                    self._clip_from_dict(clip_payload, track_id)
+                    for clip_payload in clips_payload
+                    if isinstance(clip_payload, dict)
+                )
+                if clip is not None
+            ],
             transitions=transitions,
         )
 
@@ -253,8 +292,15 @@ class ProjectService:
             ]
         return payload
 
-    def _clip_from_dict(self, payload: dict[str, Any], track_id: str) -> BaseClip:
+    def _clip_from_dict(self, payload: dict[str, Any], track_id: str) -> BaseClip | None:
         clip_type = self._read_str(payload, "clip_type", default="video").lower()
+        if clip_type in _LEGACY_CLIP_TYPES:
+            logger.info(
+                "ProjectService: skipping legacy clip type '%s' (clip_id=%s)",
+                clip_type,
+                payload.get("clip_id"),
+            )
+            return None
         base_kwargs = {
             "clip_id": self._read_str(payload, "clip_id"),
             "name": self._read_str(payload, "name"),
@@ -385,9 +431,23 @@ class ProjectService:
             "media_type": media_asset.media_type,
             "duration_seconds": media_asset.duration_seconds,
             "file_size_bytes": media_asset.file_size_bytes,
+            "width": media_asset.width,
+            "height": media_asset.height,
+            "video_codec": media_asset.video_codec,
+            "audio_codec": media_asset.audio_codec,
+            "fps": media_asset.fps,
+            "sample_rate": media_asset.sample_rate,
         }
 
-    def _media_asset_from_dict(self, payload: dict[str, Any]) -> MediaAsset:
+    def _media_asset_from_dict(self, payload: dict[str, Any]) -> MediaAsset | None:
+        media_type_raw = self._read_str(payload, "media_type", default="").lower()
+        if media_type_raw in _LEGACY_MEDIA_TYPES:
+            logger.info(
+                "ProjectService: skipping legacy media type '%s' (name=%s)",
+                media_type_raw,
+                payload.get("name"),
+            )
+            return None
         return MediaAsset(
             media_id=self._read_str(payload, "media_id"),
             name=self._read_str(payload, "name"),
@@ -395,6 +455,12 @@ class ProjectService:
             media_type=self._read_str(payload, "media_type"),
             duration_seconds=self._read_optional_float(payload, "duration_seconds"),
             file_size_bytes=self._read_optional_int(payload, "file_size_bytes"),
+            width=self._read_optional_int(payload, "width"),
+            height=self._read_optional_int(payload, "height"),
+            video_codec=self._read_optional_str(payload, "video_codec"),
+            audio_codec=self._read_optional_str(payload, "audio_codec"),
+            fps=self._read_optional_float(payload, "fps"),
+            sample_rate=self._read_optional_int(payload, "sample_rate"),
         )
 
     @staticmethod

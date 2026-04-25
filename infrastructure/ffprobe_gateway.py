@@ -18,6 +18,12 @@ class MediaProbeResult:
     duration_seconds: float | None
     has_video_stream: bool
     has_audio_stream: bool
+    width: int | None = None
+    height: int | None = None
+    video_codec: str | None = None
+    audio_codec: str | None = None
+    fps: float | None = None
+    sample_rate: int | None = None
 
 
 def _bundled_ffprobe_candidates(bin_dir: Path) -> list[Path]:
@@ -91,10 +97,17 @@ class FFprobeGateway:
 
         duration = self._extract_duration(payload)
         has_video, has_audio = self._extract_stream_flags(payload)
+        stream_details = self._extract_stream_details(payload)
         return MediaProbeResult(
             duration_seconds=duration,
             has_video_stream=has_video,
             has_audio_stream=has_audio,
+            width=stream_details["width"],
+            height=stream_details["height"],
+            video_codec=stream_details["video_codec"],
+            audio_codec=stream_details["audio_codec"],
+            fps=stream_details["fps"],
+            sample_rate=stream_details["sample_rate"],
         )
 
     @staticmethod
@@ -144,6 +157,73 @@ class FFprobeGateway:
                 elif codec_type == "audio":
                     has_audio = True
         return has_video, has_audio
+
+    @staticmethod
+    def _extract_stream_details(payload: dict) -> dict:
+        """Extract metadata from first video/audio streams where available."""
+        details: dict = {
+            "width": None,
+            "height": None,
+            "video_codec": None,
+            "audio_codec": None,
+            "fps": None,
+            "sample_rate": None,
+        }
+        streams = payload.get("streams")
+        if not isinstance(streams, list):
+            return details
+
+        for stream in streams:
+            if not isinstance(stream, dict):
+                continue
+            codec_type = str(stream.get("codec_type", "")).lower()
+            if codec_type == "video" and details["video_codec"] is None:
+                codec_name = stream.get("codec_name")
+                if isinstance(codec_name, str) and codec_name:
+                    details["video_codec"] = codec_name
+
+                width = stream.get("width")
+                height = stream.get("height")
+                if isinstance(width, int) and width > 0:
+                    details["width"] = width
+                if isinstance(height, int) and height > 0:
+                    details["height"] = height
+
+                rate_str = stream.get("avg_frame_rate") or stream.get("r_frame_rate")
+                details["fps"] = FFprobeGateway._parse_frame_rate(rate_str)
+            elif codec_type == "audio" and details["audio_codec"] is None:
+                codec_name = stream.get("codec_name")
+                if isinstance(codec_name, str) and codec_name:
+                    details["audio_codec"] = codec_name
+                sample_rate_str = stream.get("sample_rate")
+                try:
+                    if sample_rate_str is not None:
+                        sample_rate = int(sample_rate_str)
+                        if sample_rate > 0:
+                            details["sample_rate"] = sample_rate
+                except (TypeError, ValueError):
+                    continue
+        return details
+
+    @staticmethod
+    def _parse_frame_rate(rate_str: str | None) -> float | None:
+        if not isinstance(rate_str, str) or not rate_str:
+            return None
+        if "/" not in rate_str:
+            try:
+                value = float(rate_str)
+            except (TypeError, ValueError):
+                return None
+            return value if value > 0 else None
+        try:
+            num_str, den_str = rate_str.split("/", 1)
+            num = float(num_str)
+            den = float(den_str)
+            if num <= 0 or den <= 0:
+                return None
+            return num / den
+        except (TypeError, ValueError):
+            return None
 
     @staticmethod
     def _resolve_ffprobe_executable(explicit_executable: str | None) -> str:

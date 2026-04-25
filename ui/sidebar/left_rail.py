@@ -8,11 +8,11 @@ from PySide6.QtWidgets import QButtonGroup, QHBoxLayout, QToolButton, QWidget
 
 # Keep ordering stable: index maps to LeftSidebarStack page index.
 RAIL_CATEGORIES: list[tuple[str, str, str]] = [
-    ("media", "Phuong tien", "rail-media"),
-    ("audio", "Am thanh", "rail-audio"),
-    ("effects", "Hieu ung", "rail-effects"),
-    ("transitions", "Chuyen tiep", "rail-transitions"),
-    ("captions", "Phu de", "rail-captions"),
+    ("media", "Phương tiện", "rail-media"),
+    ("audio", "Âm thanh", "rail-audio"),
+    ("effects", "Hiệu ứng", "rail-effects"),
+    ("transitions", "Chuyển tiếp", "rail-transitions"),
+    ("captions", "Phụ đề", "rail-captions"),
 ]
 
 _BUTTON_WIDTH = 80

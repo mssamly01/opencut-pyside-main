@@ -27,13 +27,21 @@ def test_build_pixmap_unknown_glyph_returns_transparent() -> None:
     assert image.pixelColor(0, 0).alpha() == 0
 
 
-def test_main_window_has_menubar_statusbar_and_timecode() -> None:
+def test_main_window_has_topbar_statusbar_and_timecode() -> None:
     application = create_application(["pytest"])
     main_window = build_main_window()
 
+    # Sprint 11+: menubar is hidden and actions are moved to TopBar popup.
     menu_bar = main_window.menuBar()
     assert menu_bar is not None
-    assert "&File" in [action.menu().title() if action.menu() else "" for action in menu_bar.actions()]
+    assert not menu_bar.isVisible()
+    assert main_window._top_bar is not None
+    top_menu = main_window._top_bar._menu_button.menu()
+    assert top_menu is not None
+    action_texts = [action.text() for action in top_menu.actions() if not action.isSeparator()]
+    assert "Save" in action_texts
+    assert "Undo" in action_texts
+    assert "Quit" in action_texts
 
     assert main_window.statusBar() is not None
     main_window._refresh_timecode(3723.456)

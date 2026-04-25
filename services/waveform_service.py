@@ -39,6 +39,13 @@ class WaveformService:
         media_asset = self._find_media_asset(project, clip.media_id)
         if media_asset is None:
             return []
+        return self.get_peaks_for_asset(media_asset, project_path)
+
+    def get_peaks_for_asset(
+        self,
+        media_asset: MediaAsset,
+        project_path: str | None = None,
+    ) -> list[float]:
         if media_asset.media_type.lower() not in {"audio", "video"}:
             return []
 
@@ -161,4 +168,3 @@ class WaveformService:
             return (project_root / raw_path).resolve()
 
         return raw_path.resolve()
-

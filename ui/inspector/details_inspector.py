@@ -23,7 +23,7 @@ class DetailsInspector(QWidget):
         layout.setContentsMargins(12, 10, 12, 10)
         layout.setSpacing(0)
 
-        title = QLabel("Chi tiet", self)
+        title = QLabel("Chi tiết", self)
         title.setObjectName("details_title")
         layout.addWidget(title)
 
@@ -74,6 +74,16 @@ class DetailsInspector(QWidget):
         asset = self._media_asset_for_clip(clip, project)
         if asset is not None:
             self._add_row("Path", asset.file_path)
+            if asset.width is not None and asset.height is not None:
+                self._add_row("Resolution", f"{asset.width} x {asset.height}")
+            if asset.fps is not None:
+                self._add_row("FPS", f"{asset.fps:.2f}")
+            if asset.video_codec:
+                self._add_row("Video codec", asset.video_codec)
+            if asset.audio_codec:
+                self._add_row("Audio codec", asset.audio_codec)
+            if asset.sample_rate is not None:
+                self._add_row("Sample rate", f"{asset.sample_rate} Hz")
             if asset.duration_seconds is not None:
                 self._add_row("Source duration", _format_duration(asset.duration_seconds))
             if asset.file_size_bytes is not None:

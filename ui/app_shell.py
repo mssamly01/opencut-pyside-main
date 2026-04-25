@@ -3,9 +3,9 @@ from __future__ import annotations
 from app.controllers.app_controller import AppController
 from app.ui.inspector.inspector_panel import InspectorPanel
 from app.ui.preview.preview_widget import PreviewWidget
+from app.ui.shared.icons import build_icon
 from app.ui.sidebar.left_rail import LeftRail
 from app.ui.sidebar.left_sidebar_stack import LeftSidebarStack
-from app.ui.shared.icons import build_icon
 from app.ui.timeline.timeline_toolbar import TimelineToolbar
 from app.ui.timeline.timeline_view import TimelineView
 from PySide6.QtCore import QSize, Qt

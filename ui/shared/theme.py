@@ -260,6 +260,46 @@ QLabel#details_value {
     color: #cdd4dc;
     font-size: 9pt;
 }
+QPushButton#inspector_toggle_button {
+    background-color: transparent;
+    color: #cdd4dc;
+    border: 1px solid #3a4452;
+    border-radius: 4px;
+    padding: 4px 12px;
+    font-size: 11px;
+}
+QPushButton#inspector_toggle_button:checked {
+    background-color: #00bcd4;
+    color: #0e1116;
+    border-color: #00bcd4;
+}
+QPushButton#inspector_toggle_button:hover:!checked {
+    background-color: #2a323d;
+}
+QLabel#audio_row_name {
+    color: #d4dde8;
+    font-size: 12px;
+    padding-left: 4px;
+}
+QWidget#audio_row_waveform { background: transparent; }
+QLabel#caption_row_timestamp {
+    color: #7a8794;
+    font-size: 11px;
+    font-family: "Consolas", "Courier New", monospace;
+    min-width: 140px;
+    max-width: 140px;
+}
+QLineEdit#caption_row_text {
+    background-color: transparent;
+    color: #d4dde8;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    padding: 2px 4px;
+}
+QLineEdit#caption_row_text:focus {
+    background-color: #1c2129;
+    border-color: #00bcd4;
+}
 """
 
 

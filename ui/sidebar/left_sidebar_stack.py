@@ -20,7 +20,11 @@ class LeftSidebarStack(QStackedWidget):
             self,
             thumbnail_service=app_controller.thumbnail_service,
         )
-        self.audio_panel = AudioPanel(app_controller.project_controller, self)
+        self.audio_panel = AudioPanel(
+            app_controller.project_controller,
+            waveform_loader=app_controller.waveform_loader,
+            parent=self,
+        )
         self.effects_panel = EffectsPanel(self)
         self.transitions_panel = EffectsPanel(self)
         self.captions_panel = CaptionsPanel(app_controller, self)
