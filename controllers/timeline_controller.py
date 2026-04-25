@@ -1216,26 +1216,6 @@ class TimelineController(QObject):
             return False
         return True
 
-    def update_keyframe_bezier_control_points(
-        self,
-        clip_id: str,
-        property_name: str,
-        time_seconds: float,
-        cp1_dx: float,
-        cp1_dy: float,
-        cp2_dx: float,
-        cp2_dy: float,
-    ) -> bool:
-        return self.update_keyframe_bezier(
-            clip_id=clip_id,
-            property_name=property_name,
-            time_seconds=time_seconds,
-            cp1_dx=cp1_dx,
-            cp1_dy=cp1_dy,
-            cp2_dx=cp2_dx,
-            cp2_dy=cp2_dy,
-        )
-
     def update_keyframe_bezier(
         self,
         clip_id: str,

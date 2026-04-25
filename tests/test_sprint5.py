@@ -31,7 +31,7 @@ def test_caption_segment_split_words_evenly() -> None:
     assert words[-1].end_seconds == pytest.approx(3.0)
 
 
-def test_text_clip_split_words_evenly_uses_timeline_start() -> None:
+def test_text_clip_split_words_evenly_is_clip_relative() -> None:
     clip = TextClip(
         clip_id="t1",
         name="Caption",
@@ -42,8 +42,8 @@ def test_text_clip_split_words_evenly_uses_timeline_start() -> None:
     )
     words = clip.split_words_evenly()
     assert len(words) == 2
-    assert words[0].start_seconds == pytest.approx(4.0)
-    assert words[1].end_seconds == pytest.approx(6.0)
+    assert words[0].start_seconds == pytest.approx(0.0)
+    assert words[1].end_seconds == pytest.approx(2.0)
 
 
 def test_add_sticker_clip_command_undo_redo() -> None:

@@ -423,12 +423,18 @@ class ExportService:
                 if voice_labels and music_labels:
                     voice_label = _mix_labels(voice_labels, "voice_mix")
                     music_label = _mix_labels(music_labels, "music_mix")
+                    # FFmpeg cannot consume the same output label twice.
+                    # Voice must feed sidechain key input and final amix.
+                    # Split once so each branch is consumed exactly one time.
                     filter_parts.append(
-                        f"{music_label}{voice_label}"
+                        f"{voice_label}asplit=2[voice_for_sc][voice_for_mix]"
+                    )
+                    filter_parts.append(
+                        f"{music_label}[voice_for_sc]"
                         "sidechaincompress=threshold=0.05:ratio=4:attack=20:release=300"
                         "[music_ducked]"
                     )
-                    final_audio_labels = [voice_label, "[music_ducked]", *other_labels]
+                    final_audio_labels = ["[voice_for_mix]", "[music_ducked]", *other_labels]
 
             amix_input_labels = "[1:a]" + "".join(final_audio_labels)
             filter_parts.append(

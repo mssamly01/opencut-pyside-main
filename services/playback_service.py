@@ -315,8 +315,9 @@ class PlaybackService:
         ascent = metrics.ascent()
         active_word_index: int | None = None
         if clip.word_timings:
+            clip_local_time = float(current_time) - float(clip.timeline_start)
             for index, word_timing in enumerate(clip.word_timings):
-                if float(word_timing.start_seconds) <= current_time < float(word_timing.end_seconds):
+                if float(word_timing.start_seconds) <= clip_local_time < float(word_timing.end_seconds):
                     active_word_index = index
                     break
 

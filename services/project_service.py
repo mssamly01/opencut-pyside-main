@@ -20,7 +20,7 @@ from app.domain.word_timing import WordTiming
 
 
 class ProjectService:
-    _FORMAT_VERSION = "1.0"
+    _FORMAT_VERSION = "1.1"
 
     def save_project(self, project: Project, file_path: str) -> str:
         target_path = Path(file_path).expanduser().resolve()
@@ -62,7 +62,9 @@ class ProjectService:
         if not isinstance(media_items_data, list):
             raise ValueError("Invalid project file: media_items must be a list")
 
-        return Project(
+        legacy_format_version = self._read_str(payload, "format_version", default="1.0")
+
+        project = Project(
             project_id=self._read_str(payload, "project_id"),
             name=self._read_str(payload, "name"),
             width=self._read_int(payload, "width"),
@@ -72,6 +74,27 @@ class ProjectService:
             media_items=[self._media_asset_from_dict(item) for item in media_items_data if isinstance(item, dict)],
             version=self._read_str(payload, "version", default="0.1.0"),
         )
+        if legacy_format_version == "1.0":
+            self._migrate_word_timings_to_clip_relative(project)
+        return project
+
+    @staticmethod
+    def _migrate_word_timings_to_clip_relative(project: Project) -> None:
+        for track in project.timeline.tracks:
+            for clip in track.clips:
+                if not isinstance(clip, TextClip):
+                    continue
+                if not clip.word_timings:
+                    continue
+                offset = float(clip.timeline_start)
+                clip.word_timings = [
+                    WordTiming(
+                        start_seconds=max(0.0, float(word.start_seconds) - offset),
+                        end_seconds=max(0.0, float(word.end_seconds) - offset),
+                        text=word.text,
+                    )
+                    for word in clip.word_timings
+                ]
 
     def _timeline_to_dict(self, timeline: Timeline) -> dict[str, Any]:
         return {

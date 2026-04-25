@@ -35,17 +35,17 @@ class TextClip(BaseClip):
     highlight_color: str = "#ffd166"
 
     def split_words_evenly(self) -> list[WordTiming]:
+        """Return clip-relative word timings split evenly over clip duration."""
         words = [token for token in (self.content or "").split() if token.strip()]
         if not words:
             return []
 
         total_duration = max(1e-6, float(self.duration))
         per_word = total_duration / len(words)
-        start = max(0.0, float(self.timeline_start))
         return [
             WordTiming(
-                start_seconds=start + index * per_word,
-                end_seconds=start + ((index + 1) * per_word if index + 1 < len(words) else total_duration),
+                start_seconds=index * per_word,
+                end_seconds=(index + 1) * per_word if index + 1 < len(words) else total_duration,
                 text=word,
             )
             for index, word in enumerate(words)
