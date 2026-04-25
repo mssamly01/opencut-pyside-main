@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QMimeData, Qt
-from PySide6.QtGui import QDrag
-from PySide6.QtWidgets import QListWidget
+from PySide6.QtCore import QMimeData, QPoint, Qt
+from PySide6.QtGui import QDrag, QMouseEvent
+from PySide6.QtWidgets import QAbstractItemView, QApplication, QListWidget
 
 MEDIA_ASSET_MIME_TYPE = "application/x-opencut-media-asset-id"
 
@@ -11,9 +11,34 @@ class MediaListWidget(QListWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setDragEnabled(True)
+        # External drag only; timeline consumes the drop.
+        self.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
+        self.setDefaultDropAction(Qt.DropAction.CopyAction)
         self.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
+        self._press_pos: QPoint | None = None
 
-    def startDrag(self, supported_actions: Qt.DropAction) -> None:  # type: ignore[override]
+    def mousePressEvent(self, event: QMouseEvent) -> None:  # type: ignore[override]
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._press_pos = event.position().toPoint()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:  # type: ignore[override]
+        if (
+            (event.buttons() & Qt.MouseButton.LeftButton)
+            and self._press_pos is not None
+            and (event.position().toPoint() - self._press_pos).manhattanLength()
+            >= QApplication.startDragDistance()
+        ):
+            self._press_pos = None
+            self._start_media_drag()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # type: ignore[override]
+        self._press_pos = None
+        super().mouseReleaseEvent(event)
+
+    def _start_media_drag(self) -> None:
         current_item = self.currentItem()
         if current_item is None:
             return
