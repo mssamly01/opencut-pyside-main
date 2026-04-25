@@ -1,10 +1,11 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from app.domain.clips.audio_clip import AudioClip
 from app.domain.clips.base_clip import BaseClip
+from app.domain.clips.sticker_clip import StickerClip
 from app.domain.clips.video_clip import VideoClip
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import (
     QGraphicsItem,
     QGraphicsPixmapItem,
@@ -96,6 +97,7 @@ class ClipItem(QGraphicsRectItem):
         self._draw_fade_regions(painter)
         self._draw_badges(painter)
         self._draw_fade_handles(painter)
+        self._draw_keyframe_markers(painter)
 
     def _refresh_thumbnail_pixmaps(self) -> None:
         for item in self._thumbnail_items:
@@ -230,6 +232,52 @@ class ClipItem(QGraphicsRectItem):
             x -= 4.0
         painter.restore()
 
+    def _draw_keyframe_markers(self, painter: QPainter) -> None:
+        clip_duration = max(1e-9, float(self.clip.duration))
+        width = self.rect().width()
+        if width < 16.0:
+            return
+
+        keyframe_times: set[float] = set()
+        for attr_name in (
+            "opacity_keyframes",
+            "position_x_keyframes",
+            "position_y_keyframes",
+            "scale_keyframes",
+            "rotation_keyframes",
+            "gain_db_keyframes",
+        ):
+            keyframes = getattr(self.clip, attr_name, None)
+            if not isinstance(keyframes, list):
+                continue
+            for keyframe in keyframes:
+                time_seconds = float(getattr(keyframe, "time_seconds", -1.0))
+                if 0.0 <= time_seconds <= clip_duration:
+                    keyframe_times.add(round(time_seconds, 4))
+
+        if not keyframe_times:
+            return
+
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setBrush(QBrush(QColor("#f6c453")))
+        painter.setPen(QPen(QColor("#101418"), 1))
+        half = 4.0
+        y = 4.0 + half
+        for time_seconds in sorted(keyframe_times):
+            x = (time_seconds / clip_duration) * width
+            painter.drawPolygon(
+                QPolygonF(
+                    [
+                        QPointF(x, y - half),
+                        QPointF(x + half, y),
+                        QPointF(x, y + half),
+                        QPointF(x - half, y),
+                    ]
+                )
+            )
+        painter.restore()
+
     def _fade_handle_centers(self) -> tuple[QPointF, QPointF]:
         width = max(1.0, self.rect().width())
         if self.clip.duration <= 1e-9:
@@ -247,8 +295,10 @@ class ClipItem(QGraphicsRectItem):
             prefix = "V"
         elif isinstance(self.clip, AudioClip):
             prefix = "A"
+        elif isinstance(self.clip, StickerClip):
+            prefix = "S"
         duration_text = self._format_duration(self.clip.duration)
-        return f"{prefix} · {self.clip.name}  {duration_text}"
+        return f"{prefix} - {self.clip.name}  {duration_text}"
 
     @staticmethod
     def _format_duration(duration_seconds: float) -> str:

@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from pathlib import Path
 
 from app.domain.clips.audio_clip import AudioClip
 from app.domain.clips.base_clip import BaseClip
 from app.domain.clips.image_clip import ImageClip
+from app.domain.clips.sticker_clip import StickerClip
 from app.domain.clips.text_clip import TextClip
 from app.domain.clips.video_clip import VideoClip
 from app.domain.project import Project
@@ -15,6 +17,7 @@ from app.services.waveform_service import WaveformService
 from app.ui.timeline.clip_item import ClipItem
 from app.ui.timeline.playhead_item import PlayheadItem
 from app.ui.timeline.ruler_widget import format_seconds_label
+from app.ui.timeline.transition_item import TransitionItem
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QGraphicsLineItem, QGraphicsScene
@@ -293,6 +296,7 @@ class TimelineScene(QGraphicsScene):
         clip_y = layout.y + 5.0
         clip_height = max(12.0, layout.height - 10.0)
         filmstrip_max_tiles = 256
+        clip_items_by_id: dict[str, ClipItem] = {}
 
         for clip in track.sorted_clips():
             clip_x = self.left_gutter + clip.timeline_start * self.pixels_per_second
@@ -337,6 +341,18 @@ class TimelineScene(QGraphicsScene):
                     pixmap = QPixmap()
                     if pixmap.loadFromData(thumbnail_bytes):
                         thumbnails.append(pixmap)
+            elif isinstance(clip, StickerClip):
+                sticker_path = Path(clip.sticker_path).expanduser()
+                if not sticker_path.is_absolute():
+                    if self._project_path is not None:
+                        project_ref = Path(self._project_path).expanduser().resolve()
+                        project_root = project_ref if project_ref.is_dir() else project_ref.parent
+                        sticker_path = (project_root / sticker_path).resolve()
+                    else:
+                        sticker_path = sticker_path.resolve()
+                pixmap = QPixmap(str(sticker_path))
+                if not pixmap.isNull():
+                    thumbnails.append(pixmap)
 
             peaks: list[float] = []
             if self._project is not None and self._waveform_service is not None and isinstance(clip, (AudioClip, VideoClip)):
@@ -346,16 +362,37 @@ class TimelineScene(QGraphicsScene):
                     project_path=self._project_path,
                 )
 
-            self.addItem(
-                ClipItem(
-                    clip=clip,
-                    rect=rect,
-                    color_hex=self._clip_color(clip),
-                    thumbnails=thumbnails,
-                    waveform_peaks=peaks,
-                    is_selected=(clip.clip_id in self._selected_clip_id_set),
-                )
+            clip_item = ClipItem(
+                clip=clip,
+                rect=rect,
+                color_hex=self._clip_color(clip),
+                thumbnails=thumbnails,
+                waveform_peaks=peaks,
+                is_selected=(clip.clip_id in self._selected_clip_id_set),
             )
+            self.addItem(clip_item)
+            clip_items_by_id[clip.clip_id] = clip_item
+
+        for transition in track.transitions:
+            from_item = clip_items_by_id.get(transition.from_clip_id)
+            to_item = clip_items_by_id.get(transition.to_clip_id)
+            if from_item is None or to_item is None:
+                continue
+
+            overlap_width = float(transition.duration_seconds) * self.pixels_per_second
+            if overlap_width <= 1.0:
+                continue
+
+            rect = QRectF(
+                from_item.scenePos().x() + from_item.rect().width() - overlap_width / 2.0,
+                from_item.scenePos().y(),
+                overlap_width,
+                from_item.rect().height(),
+            )
+            transition_item = TransitionItem(transition, rect)
+            transition_item.setZValue(15)
+            transition_item.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+            self.addItem(transition_item)
 
     def _refresh_clip_selection_state(self) -> None:
         for item in self.items():
@@ -376,6 +413,8 @@ class TimelineScene(QGraphicsScene):
     def _clip_color(clip: BaseClip) -> str:
         if isinstance(clip, VideoClip):
             return "#3f6bb8"
+        if isinstance(clip, StickerClip):
+            return "#7d65d4"
         if isinstance(clip, ImageClip):
             return "#a85fb8"
         if isinstance(clip, TextClip):

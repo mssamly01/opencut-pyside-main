@@ -9,8 +9,10 @@ from app.controllers.selection_controller import SelectionController
 from app.controllers.timeline_controller import TimelineController
 from app.domain.clips.base_clip import BaseClip
 from app.domain.clips.image_clip import ImageClip
+from app.domain.clips.sticker_clip import StickerClip
 from app.domain.clips.text_clip import TextClip
 from app.domain.clips.video_clip import VideoClip
+from app.services.keyframe_evaluator import resolve_clip_value_at
 from app.ui.preview.playback_toolbar import PlaybackToolbar
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QImage, QMouseEvent, QPainter, QPaintEvent, QPen, QPixmap, QTransform
@@ -110,7 +112,70 @@ class _PreviewCanvas(QWidget):
             )
             draw_x = project_rect.x() + (project_rect.width() - scaled.width()) / 2.0
             draw_y = project_rect.y() + (project_rect.height() - scaled.height()) / 2.0
-            painter.drawPixmap(int(round(draw_x)), int(round(draw_y)), scaled)
+            clip = self._currently_rendered_clip()
+            if clip is not None and isinstance(clip, (VideoClip, ImageClip, StickerClip)):
+                time_in_clip = max(
+                    0.0,
+                    min(float(clip.duration), self._current_time - float(clip.timeline_start)),
+                )
+                scale = max(
+                    0.05,
+                    min(
+                        8.0,
+                        resolve_clip_value_at(
+                            clip,
+                            "scale",
+                            time_in_clip,
+                            default=1.0,
+                        ),
+                    ),
+                )
+                rotation = resolve_clip_value_at(
+                    clip,
+                    "rotation",
+                    time_in_clip,
+                    default=0.0,
+                )
+                position_x = resolve_clip_value_at(
+                    clip,
+                    "position_x",
+                    time_in_clip,
+                    default=0.5,
+                )
+                position_y = resolve_clip_value_at(
+                    clip,
+                    "position_y",
+                    time_in_clip,
+                    default=0.5,
+                )
+                opacity = max(
+                    0.0,
+                    min(
+                        1.0,
+                        resolve_clip_value_at(
+                            clip,
+                            "opacity",
+                            time_in_clip,
+                            default=1.0,
+                        ),
+                    ),
+                )
+
+                transform = QTransform()
+                center_x = project_rect.center().x() + (position_x - 0.5) * project_rect.width()
+                center_y = project_rect.center().y() + (position_y - 0.5) * project_rect.height()
+                transform.translate(center_x, center_y)
+                transform.rotate(rotation)
+                transform.scale(scale, scale)
+                transform.translate(-scaled.width() / 2.0, -scaled.height() / 2.0)
+
+                painter.save()
+                painter.setOpacity(opacity)
+                painter.setTransform(transform, combine=False)
+                painter.drawPixmap(0, 0, scaled)
+                painter.restore()
+            else:
+                painter.drawPixmap(int(round(draw_x)), int(round(draw_y)), scaled)
 
         if self._safe_zone_enabled:
             self._draw_safe_zone(painter, project_rect)
@@ -277,11 +342,28 @@ class _PreviewCanvas(QWidget):
         clip = self._clip_by_id(clip_id)
         if clip is None:
             return None
-        if not isinstance(clip, (VideoClip, ImageClip, TextClip)):
+        if not isinstance(clip, (VideoClip, ImageClip, StickerClip, TextClip)):
             return None
         if not hasattr(clip, "position_x") or not hasattr(clip, "position_y"):
             return None
         return clip
+
+    def _currently_rendered_clip(self) -> BaseClip | None:
+        project = self._project_controller.active_project()
+        if project is None:
+            return None
+        current_time = float(self._current_time)
+        for track in reversed(project.timeline.tracks):
+            if track.is_hidden or track.is_muted:
+                continue
+            for clip in reversed(track.sorted_clips()):
+                if clip.is_muted:
+                    continue
+                if not isinstance(clip, (VideoClip, ImageClip, StickerClip, TextClip)):
+                    continue
+                if clip.timeline_start <= current_time < (clip.timeline_start + clip.duration):
+                    return clip
+        return None
 
     def _clip_by_id(self, clip_id: str) -> BaseClip | None:
         project = self._project_controller.active_project()
@@ -403,6 +485,13 @@ class PreviewWidget(QWidget):
         self._safe_zone_check = QCheckBox("Safe Zone", self)
         self._safe_zone_check.toggled.connect(self._on_safe_zone_toggled)
         aspect_row.addWidget(self._safe_zone_check)
+        self._auto_keyframe_check = QCheckBox("Auto-keyframe", self)
+        self._auto_keyframe_check.setToolTip(
+            "When enabled, manipulator edits insert keyframes at the playhead."
+        )
+        self._auto_keyframe_check.setChecked(self._timeline_controller.auto_keyframe_enabled())
+        self._auto_keyframe_check.toggled.connect(self._on_auto_keyframe_toggled)
+        aspect_row.addWidget(self._auto_keyframe_check)
         aspect_row.addStretch(1)
         layout.addLayout(aspect_row)
 
@@ -438,6 +527,9 @@ class PreviewWidget(QWidget):
 
     def _on_safe_zone_toggled(self, enabled: bool) -> None:
         self.preview_canvas.set_safe_zone_enabled(enabled)
+
+    def _on_auto_keyframe_toggled(self, enabled: bool) -> None:
+        self._timeline_controller.set_auto_keyframe_enabled(bool(enabled))
 
     def _on_current_time_changed(self, current_time: float) -> None:
         self._current_time = current_time

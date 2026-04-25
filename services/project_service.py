@@ -7,12 +7,16 @@ from typing import Any
 from app.domain.clips.audio_clip import AudioClip
 from app.domain.clips.base_clip import BaseClip
 from app.domain.clips.image_clip import ImageClip
+from app.domain.clips.sticker_clip import StickerClip
 from app.domain.clips.text_clip import TextClip
 from app.domain.clips.video_clip import VideoClip
+from app.domain.keyframe import Keyframe
 from app.domain.media_asset import MediaAsset
 from app.domain.project import Project
 from app.domain.timeline import Timeline
 from app.domain.track import Track
+from app.domain.transition import Transition
+from app.domain.word_timing import WordTiming
 
 
 class ProjectService:
@@ -87,11 +91,22 @@ class ProjectService:
             "track_id": track.track_id,
             "name": track.name,
             "track_type": track.track_type,
+            "track_role": track.track_role,
             "is_muted": track.is_muted,
             "is_locked": track.is_locked,
             "is_hidden": track.is_hidden,
             "height": track.height,
             "clips": [self._clip_to_dict(clip) for clip in track.clips],
+            "transitions": [
+                {
+                    "transition_id": transition.transition_id,
+                    "transition_type": transition.transition_type,
+                    "duration_seconds": float(transition.duration_seconds),
+                    "from_clip_id": transition.from_clip_id,
+                    "to_clip_id": transition.to_clip_id,
+                }
+                for transition in track.transitions
+            ],
         }
 
     def _track_from_dict(self, payload: dict[str, Any]) -> Track:
@@ -99,16 +114,43 @@ class ProjectService:
         clips_payload = payload.get("clips", [])
         if not isinstance(clips_payload, list):
             raise ValueError("Invalid project file: track.clips must be a list")
+        transitions_payload = payload.get("transitions", [])
+        transitions: list[Transition] = []
+        if isinstance(transitions_payload, list):
+            for transition_payload in transitions_payload:
+                if not isinstance(transition_payload, dict):
+                    continue
+                try:
+                    transitions.append(
+                        Transition(
+                            transition_id=str(transition_payload.get("transition_id", "")),
+                            transition_type=str(
+                                transition_payload.get(
+                                    "transition_type",
+                                    "cross_dissolve",
+                                )
+                            ),
+                            duration_seconds=float(
+                                transition_payload.get("duration_seconds", 0.5)
+                            ),
+                            from_clip_id=str(transition_payload.get("from_clip_id", "")),
+                            to_clip_id=str(transition_payload.get("to_clip_id", "")),
+                        )
+                    )
+                except (TypeError, ValueError):
+                    continue
 
         return Track(
             track_id=track_id,
             name=self._read_str(payload, "name"),
             track_type=self._read_str(payload, "track_type"),
+            track_role=self._read_str(payload, "track_role", default="music"),
             is_muted=self._read_bool(payload, "is_muted", default=False),
             is_locked=self._read_bool(payload, "is_locked", default=False),
             is_hidden=self._read_bool(payload, "is_hidden", default=False),
             height=self._read_float(payload, "height", default=58.0),
             clips=[self._clip_from_dict(clip_payload, track_id) for clip_payload in clips_payload if isinstance(clip_payload, dict)],
+            transitions=transitions,
         )
 
     def _clip_to_dict(self, clip: BaseClip) -> dict[str, Any]:
@@ -127,6 +169,7 @@ class ProjectService:
             "is_muted": clip.is_muted,
             "fade_in_seconds": clip.fade_in_seconds,
             "fade_out_seconds": clip.fade_out_seconds,
+            "opacity_keyframes": self._keyframes_to_dict(clip.opacity_keyframes),
         }
 
         if isinstance(clip, VideoClip):
@@ -142,9 +185,25 @@ class ProjectService:
             payload["blur"] = clip.blur
             payload["vignette"] = clip.vignette
             payload["color_preset"] = clip.color_preset
+            payload["position_x_keyframes"] = self._keyframes_to_dict(clip.position_x_keyframes)
+            payload["position_y_keyframes"] = self._keyframes_to_dict(clip.position_y_keyframes)
+            payload["scale_keyframes"] = self._keyframes_to_dict(clip.scale_keyframes)
+            payload["rotation_keyframes"] = self._keyframes_to_dict(clip.rotation_keyframes)
+            payload["playback_speed_keyframes"] = self._keyframes_to_dict(clip.playback_speed_keyframes)
+        elif isinstance(clip, StickerClip):
+            payload["sticker_path"] = clip.sticker_path
+            payload["scale"] = clip.scale
+            payload["position_x"] = clip.position_x
+            payload["position_y"] = clip.position_y
+            payload["rotation"] = clip.rotation
+            payload["position_x_keyframes"] = self._keyframes_to_dict(clip.position_x_keyframes)
+            payload["position_y_keyframes"] = self._keyframes_to_dict(clip.position_y_keyframes)
+            payload["scale_keyframes"] = self._keyframes_to_dict(clip.scale_keyframes)
+            payload["rotation_keyframes"] = self._keyframes_to_dict(clip.rotation_keyframes)
         elif isinstance(clip, AudioClip):
             payload["gain_db"] = clip.gain_db
             payload["playback_speed"] = clip.playback_speed
+            payload["gain_db_keyframes"] = self._keyframes_to_dict(clip.gain_db_keyframes)
         elif isinstance(clip, ImageClip):
             payload["scale"] = clip.scale
             payload["position_x"] = clip.position_x
@@ -156,6 +215,10 @@ class ProjectService:
             payload["blur"] = clip.blur
             payload["vignette"] = clip.vignette
             payload["color_preset"] = clip.color_preset
+            payload["position_x_keyframes"] = self._keyframes_to_dict(clip.position_x_keyframes)
+            payload["position_y_keyframes"] = self._keyframes_to_dict(clip.position_y_keyframes)
+            payload["scale_keyframes"] = self._keyframes_to_dict(clip.scale_keyframes)
+            payload["rotation_keyframes"] = self._keyframes_to_dict(clip.rotation_keyframes)
         elif isinstance(clip, TextClip):
             payload["content"] = clip.content
             payload["font_size"] = clip.font_size
@@ -175,6 +238,19 @@ class ProjectService:
             payload["shadow_offset_y"] = clip.shadow_offset_y
             payload["scale"] = clip.scale
             payload["rotation"] = clip.rotation
+            payload["position_x_keyframes"] = self._keyframes_to_dict(clip.position_x_keyframes)
+            payload["position_y_keyframes"] = self._keyframes_to_dict(clip.position_y_keyframes)
+            payload["scale_keyframes"] = self._keyframes_to_dict(clip.scale_keyframes)
+            payload["rotation_keyframes"] = self._keyframes_to_dict(clip.rotation_keyframes)
+            payload["highlight_color"] = clip.highlight_color
+            payload["word_timings"] = [
+                {
+                    "start_seconds": float(item.start_seconds),
+                    "end_seconds": float(item.end_seconds),
+                    "text": str(item.text),
+                }
+                for item in clip.word_timings
+            ]
         return payload
 
     def _clip_from_dict(self, payload: dict[str, Any], track_id: str) -> BaseClip:
@@ -193,6 +269,7 @@ class ProjectService:
             "is_muted": self._read_bool(payload, "is_muted", default=False),
             "fade_in_seconds": self._read_float(payload, "fade_in_seconds", default=0.0),
             "fade_out_seconds": self._read_float(payload, "fade_out_seconds", default=0.0),
+            "opacity_keyframes": self._keyframes_from_payload(payload.get("opacity_keyframes")),
         }
 
         if clip_type == "video":
@@ -210,12 +287,31 @@ class ProjectService:
                 blur=self._read_float(payload, "blur", default=0.0),
                 vignette=self._read_float(payload, "vignette", default=0.0),
                 color_preset=self._read_str(payload, "color_preset", default="none"),
+                position_x_keyframes=self._keyframes_from_payload(payload.get("position_x_keyframes")),
+                position_y_keyframes=self._keyframes_from_payload(payload.get("position_y_keyframes")),
+                scale_keyframes=self._keyframes_from_payload(payload.get("scale_keyframes")),
+                rotation_keyframes=self._keyframes_from_payload(payload.get("rotation_keyframes")),
+                playback_speed_keyframes=self._keyframes_from_payload(payload.get("playback_speed_keyframes")),
+            )
+        if clip_type == "sticker":
+            return StickerClip(
+                **base_kwargs,
+                sticker_path=self._read_str(payload, "sticker_path", default=""),
+                scale=self._read_float(payload, "scale", default=0.35),
+                position_x=self._read_float(payload, "position_x", default=0.5),
+                position_y=self._read_float(payload, "position_y", default=0.5),
+                rotation=self._read_float(payload, "rotation", default=0.0),
+                position_x_keyframes=self._keyframes_from_payload(payload.get("position_x_keyframes")),
+                position_y_keyframes=self._keyframes_from_payload(payload.get("position_y_keyframes")),
+                scale_keyframes=self._keyframes_from_payload(payload.get("scale_keyframes")),
+                rotation_keyframes=self._keyframes_from_payload(payload.get("rotation_keyframes")),
             )
         if clip_type == "audio":
             return AudioClip(
                 **base_kwargs,
                 gain_db=self._read_float(payload, "gain_db", default=0.0),
                 playback_speed=self._read_float(payload, "playback_speed", default=1.0),
+                gain_db_keyframes=self._keyframes_from_payload(payload.get("gain_db_keyframes")),
             )
         if clip_type == "image":
             return ImageClip(
@@ -230,6 +326,10 @@ class ProjectService:
                 blur=self._read_float(payload, "blur", default=0.0),
                 vignette=self._read_float(payload, "vignette", default=0.0),
                 color_preset=self._read_str(payload, "color_preset", default="none"),
+                position_x_keyframes=self._keyframes_from_payload(payload.get("position_x_keyframes")),
+                position_y_keyframes=self._keyframes_from_payload(payload.get("position_y_keyframes")),
+                scale_keyframes=self._keyframes_from_payload(payload.get("scale_keyframes")),
+                rotation_keyframes=self._keyframes_from_payload(payload.get("rotation_keyframes")),
             )
         if clip_type == "text":
             return TextClip(
@@ -252,6 +352,12 @@ class ProjectService:
                 shadow_offset_y=self._read_float(payload, "shadow_offset_y", default=0.0),
                 scale=self._read_float(payload, "scale", default=1.0),
                 rotation=self._read_float(payload, "rotation", default=0.0),
+                position_x_keyframes=self._keyframes_from_payload(payload.get("position_x_keyframes")),
+                position_y_keyframes=self._keyframes_from_payload(payload.get("position_y_keyframes")),
+                scale_keyframes=self._keyframes_from_payload(payload.get("scale_keyframes")),
+                rotation_keyframes=self._keyframes_from_payload(payload.get("rotation_keyframes")),
+                highlight_color=self._read_str(payload, "highlight_color", default="#ffd166"),
+                word_timings=self._word_timings_from_payload(payload.get("word_timings")),
             )
         raise ValueError(f"Invalid project file: unsupported clip_type '{clip_type}'")
 
@@ -263,9 +369,39 @@ class ProjectService:
             return "audio"
         if isinstance(clip, ImageClip):
             return "image"
+        if isinstance(clip, StickerClip):
+            return "sticker"
         if isinstance(clip, TextClip):
             return "text"
         return "base"
+
+    @staticmethod
+    def _word_timings_from_payload(payload: Any) -> list[WordTiming]:
+        if payload is None:
+            return []
+        if not isinstance(payload, list):
+            return []
+        word_timings: list[WordTiming] = []
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            start = item.get("start_seconds", 0.0)
+            end = item.get("end_seconds", 0.0)
+            text = item.get("text", "")
+            if not isinstance(start, (int, float)):
+                continue
+            if not isinstance(end, (int, float)):
+                continue
+            if not isinstance(text, str):
+                continue
+            word_timings.append(
+                WordTiming(
+                    start_seconds=float(start),
+                    end_seconds=float(end),
+                    text=text,
+                )
+            )
+        return word_timings
 
     @staticmethod
     def _media_asset_to_dict(media_asset: MediaAsset) -> dict[str, Any]:
@@ -287,6 +423,67 @@ class ProjectService:
             duration_seconds=self._read_optional_float(payload, "duration_seconds"),
             file_size_bytes=self._read_optional_int(payload, "file_size_bytes"),
         )
+
+    @staticmethod
+    def _keyframes_to_dict(keyframes: list[Keyframe]) -> list[dict[str, Any]]:
+        return [
+            {
+                "time_seconds": float(item.time_seconds),
+                "value": float(item.value),
+                "interpolation": item.interpolation,
+                "bezier_cp1_dx": float(item.bezier_cp1_dx),
+                "bezier_cp1_dy": float(item.bezier_cp1_dy),
+                "bezier_cp2_dx": float(item.bezier_cp2_dx),
+                "bezier_cp2_dy": float(item.bezier_cp2_dy),
+            }
+            for item in keyframes
+        ]
+
+    @staticmethod
+    def _keyframes_from_payload(payload: Any) -> list[Keyframe]:
+        if payload is None:
+            return []
+        if not isinstance(payload, list):
+            raise ValueError("Invalid project file: keyframes must be a list")
+
+        keyframes: list[Keyframe] = []
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            time_seconds = item.get("time_seconds", item.get("time", 0.0))
+            value = item.get("value", 0.0)
+            interpolation = item.get("interpolation", "linear")
+            bezier_cp1_dx = item.get("bezier_cp1_dx", 0.42)
+            bezier_cp1_dy = item.get("bezier_cp1_dy", 0.0)
+            bezier_cp2_dx = item.get("bezier_cp2_dx", 0.58)
+            bezier_cp2_dy = item.get("bezier_cp2_dy", 1.0)
+            if not isinstance(time_seconds, (int, float)):
+                continue
+            if not isinstance(value, (int, float)):
+                continue
+            if not isinstance(interpolation, str):
+                continue
+            if not isinstance(bezier_cp1_dx, (int, float)):
+                continue
+            if not isinstance(bezier_cp1_dy, (int, float)):
+                continue
+            if not isinstance(bezier_cp2_dx, (int, float)):
+                continue
+            if not isinstance(bezier_cp2_dy, (int, float)):
+                continue
+            keyframes.append(
+                Keyframe(
+                    time_seconds=float(time_seconds),
+                    value=float(value),
+                    interpolation=interpolation,
+                    bezier_cp1_dx=float(bezier_cp1_dx),
+                    bezier_cp1_dy=float(bezier_cp1_dy),
+                    bezier_cp2_dx=float(bezier_cp2_dx),
+                    bezier_cp2_dy=float(bezier_cp2_dy),
+                )
+            )
+        keyframes.sort(key=lambda item: item.time_seconds)
+        return keyframes
 
     @staticmethod
     def _read_str(payload: dict[str, Any], key: str, default: str | None = None) -> str:

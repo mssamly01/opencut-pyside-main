@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.controllers.app_controller import AppController
 from app.domain.clips.audio_clip import AudioClip
 from app.domain.clips.image_clip import ImageClip
+from app.domain.clips.sticker_clip import StickerClip
 from app.domain.clips.text_clip import TextClip
 from app.domain.clips.video_clip import VideoClip
 from app.ui.inspector.audio_inspector import AudioInspector
@@ -88,6 +89,7 @@ class InspectorPanel(QWidget):
         basic_widget = widget_type(self._app_controller.timeline_controller, clip, self)
         tabs = ClipInspectorTabs(
             self._app_controller.timeline_controller,
+            self._app_controller.playback_controller,
             basic_widget,
             clip,
             self,
@@ -138,7 +140,7 @@ class InspectorPanel(QWidget):
             return VideoInspector
         if isinstance(clip, AudioClip):
             return AudioInspector
-        if isinstance(clip, ImageClip):
+        if isinstance(clip, (ImageClip, StickerClip)):
             return ImageInspector
         if isinstance(clip, TextClip):
             return TextInspector

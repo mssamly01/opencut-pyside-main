@@ -4,7 +4,17 @@ from dataclasses import dataclass
 
 from app.domain.clips.text_clip import TextClip
 from app.ui.inspector._clip_inspector_base import ClipInspectorBase, block_signals
-from PySide6.QtWidgets import QCheckBox, QComboBox, QDoubleSpinBox, QLineEdit
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QColorDialog,
+    QComboBox,
+    QDoubleSpinBox,
+    QHBoxLayout,
+    QLineEdit,
+    QPushButton,
+    QWidget,
+)
 
 
 @dataclass(frozen=True)
@@ -110,6 +120,19 @@ class TextInspector(ClipInspectorBase):
         self._color_edit.editingFinished.connect(self._commit_specific_fields)
         self._form.addRow("Color", self._color_edit)
 
+        self._highlight_color_edit = QLineEdit(self)
+        self._highlight_color_edit.editingFinished.connect(self._commit_specific_fields)
+        self._highlight_color_pick_button = QPushButton("...", self)
+        self._highlight_color_pick_button.setMaximumWidth(36)
+        self._highlight_color_pick_button.clicked.connect(self._on_pick_highlight_color)
+        highlight_row = QWidget(self)
+        highlight_layout = QHBoxLayout(highlight_row)
+        highlight_layout.setContentsMargins(0, 0, 0, 0)
+        highlight_layout.setSpacing(6)
+        highlight_layout.addWidget(self._highlight_color_edit, 1)
+        highlight_layout.addWidget(self._highlight_color_pick_button)
+        self._form.addRow("Highlight", highlight_row)
+
         self._pos_x_spin = QDoubleSpinBox(self)
         self._pos_x_spin.setRange(0.0, 1.0)
         self._pos_x_spin.setDecimals(2)
@@ -170,6 +193,10 @@ class TextInspector(ClipInspectorBase):
         self._shadow_offset_y_spin.editingFinished.connect(self._commit_specific_fields)
         self._form.addRow("Shadow Offset Y", self._shadow_offset_y_spin)
 
+        self._auto_split_words_button = QPushButton("Auto split words", self)
+        self._auto_split_words_button.clicked.connect(self._on_auto_split_words)
+        self._form.addRow("", self._auto_split_words_button)
+
     def _refresh_specific_fields(self) -> None:
         clip = self._clip
         if not isinstance(clip, TextClip):
@@ -186,6 +213,7 @@ class TextInspector(ClipInspectorBase):
             self._italic_check,
             self._alignment_combo,
             self._color_edit,
+            self._highlight_color_edit,
             self._pos_x_spin,
             self._pos_y_spin,
             self._outline_color_edit,
@@ -204,6 +232,7 @@ class TextInspector(ClipInspectorBase):
             self._italic_check.setChecked(clip.italic)
             self._alignment_combo.setCurrentIndex(alignment_index)
             self._color_edit.setText(clip.color)
+            self._highlight_color_edit.setText(clip.highlight_color)
             self._pos_x_spin.setValue(clip.position_x)
             self._pos_y_spin.setValue(clip.position_y)
             self._outline_color_edit.setText(clip.outline_color)
@@ -230,6 +259,7 @@ class TextInspector(ClipInspectorBase):
         self._apply_property_update(clip, "italic", bool(self._italic_check.isChecked()))
         self._apply_property_update(clip, "alignment", alignment_value)
         self._apply_property_update(clip, "color", self._color_edit.text())
+        self._apply_property_update(clip, "highlight_color", self._highlight_color_edit.text() or "#ffd166")
         self._apply_property_update(clip, "position_x", float(self._pos_x_spin.value()))
         self._apply_property_update(clip, "position_y", float(self._pos_y_spin.value()))
         self._apply_property_update(clip, "outline_color", self._outline_color_edit.text())
@@ -266,3 +296,27 @@ class TextInspector(ClipInspectorBase):
         self._apply_property_update(clip, "shadow_color", preset.shadow_color)
         self._apply_property_update(clip, "shadow_offset_x", preset.shadow_offset_x)
         self._apply_property_update(clip, "shadow_offset_y", preset.shadow_offset_y)
+
+    def _on_pick_highlight_color(self) -> None:
+        clip = self._clip
+        if not isinstance(clip, TextClip):
+            return
+
+        initial = QColor(self._highlight_color_edit.text() or clip.highlight_color or "#ffd166")
+        color = QColorDialog.getColor(initial, self, "Select highlight color")
+        if not color.isValid():
+            return
+
+        selected = color.name()
+        self._highlight_color_edit.setText(selected)
+        self._apply_property_update(clip, "highlight_color", selected)
+
+    def _on_auto_split_words(self) -> None:
+        clip = self._clip
+        if not isinstance(clip, TextClip):
+            return
+
+        word_timings = clip.split_words_evenly()
+        if not word_timings:
+            return
+        self._apply_property_update(clip, "word_timings", word_timings)

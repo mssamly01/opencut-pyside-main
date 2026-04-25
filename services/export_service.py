@@ -13,11 +13,13 @@ from typing import TextIO
 from app.domain.clips.audio_clip import AudioClip
 from app.domain.clips.base_clip import BaseClip
 from app.domain.clips.image_clip import ImageClip
+from app.domain.clips.sticker_clip import StickerClip
 from app.domain.clips.text_clip import TextClip
 from app.domain.clips.video_clip import VideoClip
 from app.domain.media_asset import MediaAsset
 from app.domain.project import Project
 from app.dto.export_dto import ExportOptions, ExportResult
+from app.services.keyframe_evaluator import clip_has_keyframes, ffmpeg_piecewise_expression
 
 ProgressCallback = Callable[[float, str], None]
 
@@ -38,6 +40,14 @@ class ExportService:
     _VIDEO_CRF = "23"
     _AUDIO_CODEC = "aac"
     _AUDIO_BITRATE = "192k"
+    _XFADE_NAME_MAP: dict[str, str] = {
+        "cross_dissolve": "fade",
+        "fade_to_black": "fadeblack",
+        "slide_left": "slideleft",
+        "slide_right": "slideright",
+        "wipe_left": "wipeleft",
+        "wipe_right": "wiperight",
+    }
 
     def __init__(self, ffmpeg_executable: str | None = None, timeout_seconds: float | None = None) -> None:
         self._ffmpeg_executable = self._resolve_ffmpeg_executable(ffmpeg_executable)
@@ -167,7 +177,7 @@ class ExportService:
                     continue
 
                 media_asset = self._resolve_media_asset(project, clip.media_id)
-                if isinstance(clip, (VideoClip, ImageClip)):
+                if isinstance(clip, (VideoClip, ImageClip, StickerClip)):
                     prepared_clip, input_index = self._append_visual_input(
                         command,
                         input_index,
@@ -209,53 +219,94 @@ class ExportService:
             )
             current_video_label = overlay_label
 
+        transition_lookup: dict[tuple[str, str], object] = {}
+        for track in project.timeline.tracks:
+            if track.is_hidden:
+                continue
+            if track.track_type.lower() not in {"video", "overlay"}:
+                continue
+            for transition in getattr(track, "transitions", []):
+                transition_lookup[(transition.from_clip_id, transition.to_clip_id)] = transition
+
+        consumed_in_xfade: set[str] = set()
+        xfade_pair_index = 0
+
         for clip_index, clip_source in enumerate(visual_inputs):
+            if clip_source.clip.clip_id in consumed_in_xfade:
+                continue
+
             source_label = f"{clip_source.input_index}:v"
             clip_label = f"v{clip_index}"
             overlay_label = f"ov{clip_index}"
             source_end = self._visual_source_end_seconds(clip_source)
-
-            video_filters: list[str] = [
-                f"trim=start={clip_source.source_start:.6f}:end={source_end:.6f}",
-                "setpts=PTS-STARTPTS",
-            ]
-            if isinstance(clip_source.clip, VideoClip):
-                if clip_source.clip.is_reversed:
-                    video_filters.append("reverse")
-
-                speed = max(0.1, float(clip_source.clip.playback_speed))
-                if abs(speed - 1.0) > 1e-6:
-                    video_filters.append(f"setpts=PTS/{speed:.6f}")
-
-            fade_in, fade_out = self._clip_fade_seconds(clip_source.clip)
-            if fade_in > 1e-6:
-                video_filters.append(f"fade=t=in:st=0:d={fade_in:.6f}")
-            if fade_out > 1e-6:
-                fade_out_start = max(0.0, clip_source.clip.duration - fade_out)
-                video_filters.append(f"fade=t=out:st={fade_out_start:.6f}:d={fade_out:.6f}")
-
-            video_filters.extend(
-                [
-                    f"scale={project.width}:{project.height}:force_original_aspect_ratio=decrease",
-                    f"pad={project.width}:{project.height}:(ow-iw)/2:(oh-ih)/2",
-                ]
+            video_filters = self._video_filters_for_clip(
+                clip_source=clip_source,
+                project=project,
+                fps=fps,
+                source_end=source_end,
             )
-            video_filters.extend(self._transform_adjust_filters_for_clip(clip_source.clip, project))
-            video_filters.extend(
-                [
-                    f"fps={fps:.6f}",
-                    "format=rgba",
-                    f"setpts=PTS-STARTPTS+{max(0.0, clip_source.clip.timeline_start):.6f}/TB",
-                ]
-            )
-
             filter_parts.append(f"[{source_label}]{','.join(video_filters)}[{clip_label}]")
-            filter_parts.append(f"[{current_video_label}][{clip_label}]overlay=eof_action=pass:repeatlast=0[{overlay_label}]")
+
+            next_clip_source = visual_inputs[clip_index + 1] if clip_index + 1 < len(visual_inputs) else None
+            transition = None
+            if next_clip_source is not None:
+                transition = transition_lookup.get((clip_source.clip.clip_id, next_clip_source.clip.clip_id))
+
+            if transition is not None and next_clip_source is not None:
+                next_source_label = f"{next_clip_source.input_index}:v"
+                next_clip_label = f"v{clip_index}_b"
+                next_source_end = self._visual_source_end_seconds(next_clip_source)
+                next_video_filters = self._video_filters_for_clip(
+                    clip_source=next_clip_source,
+                    project=project,
+                    fps=fps,
+                    source_end=next_source_end,
+                )
+                filter_parts.append(
+                    f"[{next_source_label}]"
+                    f"{','.join(next_video_filters)}"
+                    f"[{next_clip_label}]"
+                )
+
+                xfade_label = f"xf{xfade_pair_index}"
+                xfade_pair_index += 1
+                xfade_offset = max(
+                    0.0,
+                    float(clip_source.clip.duration) - float(transition.duration_seconds),
+                )
+                xfade_name = self._XFADE_NAME_MAP.get(
+                    str(getattr(transition, "transition_type", "")),
+                    "fade",
+                )
+                filter_parts.append(
+                    f"[{clip_label}][{next_clip_label}]"
+                    f"xfade=transition={xfade_name}:"
+                    f"duration={float(transition.duration_seconds):.6f}:"
+                    f"offset={xfade_offset:.6f}"
+                    f"[{xfade_label}]"
+                )
+
+                ox, oy = self._clip_overlay_xy_expressions(clip_source.clip, project)
+                filter_parts.append(
+                    f"[{current_video_label}][{xfade_label}]"
+                    f"overlay=x={ox}:y={oy}:eof_action=pass:repeatlast=0"
+                    f"[{overlay_label}]"
+                )
+                current_video_label = overlay_label
+                consumed_in_xfade.add(next_clip_source.clip.clip_id)
+                continue
+
+            ox, oy = self._clip_overlay_xy_expressions(clip_source.clip, project)
+            filter_parts.append(
+                f"[{current_video_label}][{clip_label}]"
+                f"overlay=x={ox}:y={oy}:eof_action=pass:repeatlast=0"
+                f"[{overlay_label}]"
+            )
             current_video_label = overlay_label
 
         audio_output_label = "1:a"
         if audio_inputs:
-            audio_stream_labels: list[str] = []
+            audio_streams: list[tuple[str, set[str]]] = []
             for clip_index, clip_source in enumerate(audio_inputs):
                 source_label = f"{clip_source.input_index}:a"
                 audio_label = f"a{clip_index}"
@@ -271,10 +322,9 @@ class ExportService:
                 if isinstance(clip_source.clip, AudioClip):
                     speed = max(0.1, float(clip_source.clip.playback_speed))
                     audio_filters.extend(self._atempo_chain(speed))
-
-                    if abs(clip_source.clip.gain_db) > 1e-9:
-                        gain_factor = 10 ** (clip_source.clip.gain_db / 20.0)
-                        audio_filters.append(f"volume={gain_factor:.6f}")
+                    volume_filter = self._audio_volume_filter_for_clip(clip_source.clip)
+                    if volume_filter:
+                        audio_filters.append(volume_filter)
 
                 fade_in, fade_out = self._clip_fade_seconds(clip_source.clip)
                 if fade_in > 1e-6:
@@ -285,11 +335,104 @@ class ExportService:
 
                 audio_filters.append(f"adelay={delay_ms}|{delay_ms}")
                 filter_parts.append(f"[{source_label}]{','.join(audio_filters)}[{audio_label}]")
-                audio_stream_labels.append(f"[{audio_label}]")
+                label = f"[{audio_label}]"
+                audio_streams.append((label, {clip_source.clip.clip_id}))
 
-            amix_input_labels = "[1:a]" + "".join(audio_stream_labels)
+            transition_lookup: dict[tuple[str, str], object] = {}
+            for track in project.timeline.tracks:
+                if track.is_hidden:
+                    continue
+                for transition in getattr(track, "transitions", []):
+                    transition_lookup[(transition.from_clip_id, transition.to_clip_id)] = transition
+
+            processed_streams: list[tuple[str, set[str]]] = []
+            stream_index = 0
+            acrossfade_index = 0
+            while stream_index < len(audio_streams):
+                if stream_index + 1 >= len(audio_streams):
+                    processed_streams.append(audio_streams[stream_index])
+                    break
+
+                left_label, left_ids = audio_streams[stream_index]
+                right_label, right_ids = audio_streams[stream_index + 1]
+                left_clip_id = next(iter(left_ids))
+                right_clip_id = next(iter(right_ids))
+                transition = transition_lookup.get((left_clip_id, right_clip_id))
+                if transition is None:
+                    processed_streams.append((left_label, left_ids))
+                    stream_index += 1
+                    continue
+
+                acrossfade_label = f"acrossfade_{acrossfade_index}"
+                acrossfade_index += 1
+                duration_seconds = max(
+                    0.05,
+                    min(2.0, float(getattr(transition, "duration_seconds", 0.5))),
+                )
+                filter_parts.append(
+                    f"{left_label}{right_label}"
+                    f"acrossfade=d={duration_seconds:.6f}:c1=tri:c2=tri"
+                    f"[{acrossfade_label}]"
+                )
+                merged_label = f"[{acrossfade_label}]"
+                merged_ids = set(left_ids) | set(right_ids)
+                processed_streams.append((merged_label, merged_ids))
+                stream_index += 2
+
+            audio_streams = processed_streams
+
+            voice_clip_ids: set[str] = set()
+            music_clip_ids: set[str] = set()
+            for track in project.timeline.tracks:
+                if track.is_hidden or track.is_muted:
+                    continue
+                if track.track_type.lower() not in {"audio", "mixed"}:
+                    continue
+                role = str(getattr(track, "track_role", "music")).lower()
+                target_set = voice_clip_ids if role == "voice" else music_clip_ids
+                for clip in track.clips:
+                    if isinstance(clip, AudioClip):
+                        target_set.add(clip.clip_id)
+
+            def _mix_labels(labels: list[str], output_label: str) -> str:
+                if len(labels) == 1:
+                    return labels[0]
+                filter_parts.append(
+                    f"{''.join(labels)}amix=inputs={len(labels)}:normalize=0:duration=longest[{output_label}]"
+                )
+                return f"[{output_label}]"
+
+            final_audio_labels = [label for label, _ids in audio_streams]
+            if voice_clip_ids and music_clip_ids:
+                voice_labels = [
+                    label
+                    for label, ids in audio_streams
+                    if ids.intersection(voice_clip_ids)
+                ]
+                music_labels = [
+                    label
+                    for label, ids in audio_streams
+                    if ids.intersection(music_clip_ids)
+                ]
+                other_labels = [
+                    label
+                    for label, ids in audio_streams
+                    if not ids.intersection(voice_clip_ids | music_clip_ids)
+                ]
+
+                if voice_labels and music_labels:
+                    voice_label = _mix_labels(voice_labels, "voice_mix")
+                    music_label = _mix_labels(music_labels, "music_mix")
+                    filter_parts.append(
+                        f"{music_label}{voice_label}"
+                        "sidechaincompress=threshold=0.05:ratio=4:attack=20:release=300"
+                        "[music_ducked]"
+                    )
+                    final_audio_labels = [voice_label, "[music_ducked]", *other_labels]
+
+            amix_input_labels = "[1:a]" + "".join(final_audio_labels)
             filter_parts.append(
-                f"{amix_input_labels}amix=inputs={len(audio_inputs) + 1}:normalize=0:duration=longest[aout]"
+                f"{amix_input_labels}amix=inputs={len(final_audio_labels) + 1}:normalize=0:duration=longest[aout]"
             )
             audio_output_label = "aout"
 
@@ -328,7 +471,7 @@ class ExportService:
 
     @staticmethod
     def _transform_adjust_filters_for_clip(clip: BaseClip, project: Project) -> list[str]:
-        if not isinstance(clip, (VideoClip, ImageClip)):
+        if not isinstance(clip, (VideoClip, ImageClip, StickerClip)):
             return []
 
         project_width = max(16, int(project.width))
@@ -336,17 +479,35 @@ class ExportService:
         filters: list[str] = []
 
         scale = max(0.05, min(8.0, float(getattr(clip, "scale", 1.0))))
-        if abs(scale - 1.0) > 1e-6:
-            filters.append(f"scale=iw*{scale:.6f}:ih*{scale:.6f}")
+        if clip_has_keyframes(clip, "scale"):
+            scale_expr = ffmpeg_piecewise_expression(
+                clip.scale_keyframes,
+                default_value=scale,
+                clip_duration=clip.duration,
+            )
+        else:
+            scale_expr = f"{scale:.6f}"
+
+        if clip_has_keyframes(clip, "scale") or abs(scale - 1.0) > 1e-6:
+            filters.append(f"scale=iw*({scale_expr}):ih*({scale_expr}):eval=frame")
             filters.append(
                 f"pad=w=max(iw\\,{project_width}):h=max(ih\\,{project_height}):x=(ow-iw)/2:y=(oh-ih)/2:color=#00000000"
             )
             filters.append(f"crop=w={project_width}:h={project_height}:x=(iw-{project_width})/2:y=(ih-{project_height})/2")
 
         rotation = float(getattr(clip, "rotation", 0.0))
-        if abs(rotation) > 1e-6:
+        if clip_has_keyframes(clip, "rotation"):
+            rotation_expr = ffmpeg_piecewise_expression(
+                clip.rotation_keyframes,
+                default_value=rotation,
+                clip_duration=clip.duration,
+            )
+        else:
+            rotation_expr = f"{rotation:.6f}"
+
+        if clip_has_keyframes(clip, "rotation") or abs(rotation) > 1e-6:
             filters.append(
-                f"rotate={rotation:.6f}*PI/180:ow=rotw(iw):oh=roth(ih):c=none"
+                f"rotate=({rotation_expr})*PI/180:ow=rotw(iw):oh=roth(ih):c=none"
             )
             filters.append(
                 f"scale={project_width}:{project_height}:force_original_aspect_ratio=decrease"
@@ -374,20 +535,101 @@ class ExportService:
         if vignette > 1e-6:
             filters.append(f"vignette=angle={max(0.02, vignette * 1.57):.6f}")
 
-        position_x = float(getattr(clip, "position_x", 0.5))
-        position_y = float(getattr(clip, "position_y", 0.5))
-        dx = int(round((position_x - 0.5) * project_width))
-        dy = int(round((position_y - 0.5) * project_height))
-        if dx != 0 or dy != 0:
-            expanded_w = project_width + abs(dx)
-            expanded_h = project_height + abs(dy)
-            filters.append(
-                f"pad=w={expanded_w}:h={expanded_h}:x={max(0, dx)}:y={max(0, dy)}:color=#00000000"
+        opacity = max(0.0, min(1.0, float(getattr(clip, "opacity", 1.0))))
+        if clip_has_keyframes(clip, "opacity"):
+            opacity_raw = ffmpeg_piecewise_expression(
+                clip.opacity_keyframes,
+                default_value=opacity,
+                clip_duration=clip.duration,
             )
-            filters.append(
-                f"crop=w={project_width}:h={project_height}:x={max(0, -dx)}:y={max(0, -dy)}"
-            )
+        else:
+            opacity_raw = f"{opacity:.6f}"
+        opacity_expr = f"min(1\\,max(0\\,{opacity_raw}))"
+        if clip_has_keyframes(clip, "opacity") or abs(opacity - 1.0) > 1e-6:
+            filters.append(f"colorchannelmixer=aa={opacity_expr}")
         return filters
+
+    def _video_filters_for_clip(
+        self,
+        clip_source: _PreparedClip,
+        project: Project,
+        fps: float,
+        source_end: float,
+    ) -> list[str]:
+        video_filters: list[str] = [
+            f"trim=start={clip_source.source_start:.6f}:end={source_end:.6f}",
+            "setpts=PTS-STARTPTS",
+        ]
+        if isinstance(clip_source.clip, VideoClip):
+            if clip_source.clip.is_reversed:
+                video_filters.append("reverse")
+            speed_keyframes = list(getattr(clip_source.clip, "playback_speed_keyframes", []))
+            static_speed = max(0.1, float(clip_source.clip.playback_speed))
+            if speed_keyframes:
+                speed_expr = ffmpeg_piecewise_expression(
+                    speed_keyframes,
+                    static_speed,
+                    max(0.001, float(clip_source.clip.duration)),
+                )
+                video_filters.append(f"setpts=PTS/({speed_expr})")
+            elif abs(static_speed - 1.0) > 1e-6:
+                video_filters.append(f"setpts=PTS/{static_speed:.6f}")
+
+        fade_in, fade_out = self._clip_fade_seconds(clip_source.clip)
+        if fade_in > 1e-6:
+            video_filters.append(f"fade=t=in:st=0:d={fade_in:.6f}")
+        if fade_out > 1e-6:
+            fade_out_start = max(0.0, clip_source.clip.duration - fade_out)
+            video_filters.append(f"fade=t=out:st={fade_out_start:.6f}:d={fade_out:.6f}")
+
+        video_filters.extend(
+            [
+                f"scale={project.width}:{project.height}:force_original_aspect_ratio=decrease",
+                f"pad={project.width}:{project.height}:(ow-iw)/2:(oh-ih)/2",
+            ]
+        )
+        video_filters.extend(self._transform_adjust_filters_for_clip(clip_source.clip, project))
+        video_filters.extend(
+            [
+                f"fps={fps:.6f}",
+                "format=rgba",
+                f"setpts=PTS-STARTPTS+{max(0.0, clip_source.clip.timeline_start):.6f}/TB",
+            ]
+        )
+        return video_filters
+
+    @staticmethod
+    def _clip_overlay_xy_expressions(clip: BaseClip, project: Project) -> tuple[str, str]:
+        """Return x/y expressions for overlay= respecting position keyframes."""
+        project_width = max(16, int(project.width))
+        project_height = max(16, int(project.height))
+
+        static_x = float(getattr(clip, "position_x", 0.5))
+        static_y = float(getattr(clip, "position_y", 0.5))
+        position_x_keyframes = list(getattr(clip, "position_x_keyframes", []))
+        position_y_keyframes = list(getattr(clip, "position_y_keyframes", []))
+
+        if position_x_keyframes:
+            x_expr = ffmpeg_piecewise_expression(
+                position_x_keyframes,
+                default_value=static_x,
+                clip_duration=max(0.001, float(clip.duration)),
+            )
+        else:
+            x_expr = f"{static_x:.6f}"
+
+        if position_y_keyframes:
+            y_expr = ffmpeg_piecewise_expression(
+                position_y_keyframes,
+                default_value=static_y,
+                clip_duration=max(0.001, float(clip.duration)),
+            )
+        else:
+            y_expr = f"{static_y:.6f}"
+
+        overlay_x = f"({project_width}*({x_expr})-(W/2))-((overlay_w-W)/2)"
+        overlay_y = f"({project_height}*({y_expr})-(H/2))-((overlay_h-H)/2)"
+        return overlay_x, overlay_y
 
     def _append_visual_input(
         self,
@@ -401,6 +643,40 @@ class ExportService:
         warnings: list[str],
     ) -> tuple[_PreparedClip, int]:
         duration = max(clip.duration, 0.001)
+        if isinstance(clip, StickerClip):
+            sticker_path = Path(clip.sticker_path).expanduser()
+            if not sticker_path.is_absolute():
+                if project_root is not None:
+                    sticker_path = (project_root / sticker_path).resolve()
+                else:
+                    sticker_path = sticker_path.resolve()
+            if not sticker_path.exists() or not sticker_path.is_file():
+                warnings.append(f"Missing sticker for clip '{clip.name}'; using placeholder video.")
+                command.extend(
+                    [
+                        "-f",
+                        "lavfi",
+                        "-i",
+                        f"color=c=gray:s={project.width}x{project.height}:r={fps:.6f}:d={duration:.6f}",
+                    ]
+                )
+                return _PreparedClip(
+                    clip=clip,
+                    input_index=input_index,
+                    placeholder=True,
+                    source_start=0.0,
+                    source_end=duration,
+                ), input_index + 1
+
+            command.extend(["-loop", "1", "-i", str(sticker_path)])
+            return _PreparedClip(
+                clip=clip,
+                input_index=input_index,
+                placeholder=False,
+                source_start=0.0,
+                source_end=duration,
+            ), input_index + 1
+
         source_start, source_end = self._clip_source_bounds(clip, placeholder=media_asset is None)
 
         if not self._media_file_exists(media_asset, project_root):
@@ -554,6 +830,22 @@ class ExportService:
             speed /= 2.0
         filters.append(f"atempo={speed:.6f}")
         return filters
+
+    @staticmethod
+    def _audio_volume_filter_for_clip(clip: AudioClip) -> str | None:
+        gain_db = float(clip.gain_db)
+        if clip_has_keyframes(clip, "gain_db"):
+            db_expr = ffmpeg_piecewise_expression(
+                clip.gain_db_keyframes,
+                default_value=gain_db,
+                clip_duration=clip.duration,
+            )
+            return f"volume=pow(10\\,({db_expr})/20):eval=frame"
+
+        if abs(gain_db) <= 1e-9:
+            return None
+        gain_factor = 10 ** (gain_db / 20.0)
+        return f"volume={gain_factor:.6f}"
 
     @staticmethod
     def _drawtext_options_for_clip(text_clip: TextClip, project: Project) -> list[str]:

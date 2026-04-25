@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from app.domain.clips.base_clip import BaseClip
+from app.domain.keyframe import Keyframe
+from app.domain.word_timing import WordTiming
 
 
 @dataclass(slots=True)
@@ -25,3 +27,26 @@ class TextClip(BaseClip):
     shadow_offset_y: float = 0.0
     scale: float = 1.0
     rotation: float = 0.0
+    position_x_keyframes: list[Keyframe] = field(default_factory=list)
+    position_y_keyframes: list[Keyframe] = field(default_factory=list)
+    scale_keyframes: list[Keyframe] = field(default_factory=list)
+    rotation_keyframes: list[Keyframe] = field(default_factory=list)
+    word_timings: list[WordTiming] = field(default_factory=list)
+    highlight_color: str = "#ffd166"
+
+    def split_words_evenly(self) -> list[WordTiming]:
+        words = [token for token in (self.content or "").split() if token.strip()]
+        if not words:
+            return []
+
+        total_duration = max(1e-6, float(self.duration))
+        per_word = total_duration / len(words)
+        start = max(0.0, float(self.timeline_start))
+        return [
+            WordTiming(
+                start_seconds=start + index * per_word,
+                end_seconds=start + ((index + 1) * per_word if index + 1 < len(words) else total_duration),
+                text=word,
+            )
+            for index, word in enumerate(words)
+        ]

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from app.domain.clips.base_clip import BaseClip
 from app.domain.clips.image_clip import ImageClip
+from app.domain.clips.sticker_clip import StickerClip
 from app.domain.clips.text_clip import TextClip
 from app.domain.clips.video_clip import VideoClip
 from app.domain.media_asset import MediaAsset
@@ -49,7 +50,20 @@ class PlaybackService:
             return PreviewFrameResult(frame_bytes=None, message="No visual clip at current time")
 
         if isinstance(active_clip, TextClip):
-            return self._render_text_clip(active_clip, project)
+            return self._render_text_clip(active_clip, project, current_time=time_seconds)
+
+        if isinstance(active_clip, StickerClip):
+            sticker_path = Path(active_clip.sticker_path).expanduser()
+            if not sticker_path.is_absolute():
+                project_root = self._project_root(project_path)
+                if project_root is not None:
+                    sticker_path = (project_root / sticker_path).resolve()
+                else:
+                    sticker_path = sticker_path.resolve()
+            image_bytes = self._load_image_bytes(sticker_path)
+            if image_bytes is None:
+                return PreviewFrameResult(frame_bytes=None, message="Unable to load sticker")
+            return PreviewFrameResult(frame_bytes=image_bytes, message=active_clip.name or "Sticker")
 
         media_asset = self._find_media_asset(project, active_clip.media_id)
         if media_asset is None:
@@ -103,7 +117,7 @@ class PlaybackService:
             if track.is_hidden or track.is_muted:
                 continue
             for clip in reversed(track.sorted_clips()):
-                if not isinstance(clip, (VideoClip, ImageClip, TextClip)):
+                if not isinstance(clip, (VideoClip, ImageClip, TextClip, StickerClip)):
                     continue
                 if clip.is_muted:
                     continue
@@ -222,7 +236,12 @@ class PlaybackService:
         cls._headless_qt_app = QApplication([])
 
     @classmethod
-    def _render_text_clip(cls, clip: TextClip, project: Project) -> PreviewFrameResult:
+    def _render_text_clip(
+        cls,
+        clip: TextClip,
+        project: Project,
+        current_time: float = 0.0,
+    ) -> PreviewFrameResult:
         cls._ensure_qt_gui_application()
         from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QPointF, QRectF, Qt
         from PySide6.QtGui import (
@@ -287,43 +306,92 @@ class PlaybackService:
             painter.drawRoundedRect(background_rect, pad_y, pad_y)
 
         fill_color = QColor(clip.color or "#ffffff")
+        highlight_color = QColor(clip.highlight_color or "#ffd166")
         outline_color = QColor(clip.outline_color or "#000000")
         shadow_color = QColor(clip.shadow_color or "#000000")
         outline_width = max(0.0, float(clip.outline_width))
         has_shadow = abs(clip.shadow_offset_x) > 0.0 or abs(clip.shadow_offset_y) > 0.0
 
         ascent = metrics.ascent()
-        for line_index, line in enumerate(lines):
-            line_width = line_widths[line_index]
+        active_word_index: int | None = None
+        if clip.word_timings:
+            for index, word_timing in enumerate(clip.word_timings):
+                if float(word_timing.start_seconds) <= current_time < float(word_timing.end_seconds):
+                    active_word_index = index
+                    break
+
+        if clip.word_timings and len(lines) == 1:
+            tokens = list(clip.word_timings)
+            space_width = metrics.horizontalAdvance(" ")
+            word_widths = [metrics.horizontalAdvance(token.text) for token in tokens]
+            content_width = sum(word_widths) + max(0, len(word_widths) - 1) * space_width
+
             if alignment == "left":
                 line_x = block_left
             elif alignment == "right":
-                line_x = block_left + (block_width - line_width)
+                line_x = block_left + (block_width - content_width)
             else:
-                line_x = block_left + (block_width - line_width) / 2.0
-            line_y = block_top + ascent + line_index * line_height
+                line_x = block_left + (block_width - content_width) / 2.0
+            line_y = block_top + ascent
 
-            path = QPainterPath()
-            path.addText(QPointF(line_x, line_y), font, line)
+            cursor_x = line_x
+            for index, token in enumerate(tokens):
+                path = QPainterPath()
+                path.addText(QPointF(cursor_x, line_y), font, token.text)
 
-            if has_shadow:
-                shadow_path = QPainterPath(path)
-                shadow_path.translate(float(clip.shadow_offset_x), float(clip.shadow_offset_y))
+                if has_shadow:
+                    shadow_path = QPainterPath(path)
+                    shadow_path.translate(float(clip.shadow_offset_x), float(clip.shadow_offset_y))
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    painter.setBrush(QBrush(shadow_color))
+                    painter.drawPath(shadow_path)
+
+                if outline_width > 0.0:
+                    pen = QPen(outline_color, outline_width * 2.0)
+                    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+                    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+                    painter.setPen(pen)
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.drawPath(path)
+
                 painter.setPen(Qt.PenStyle.NoPen)
-                painter.setBrush(QBrush(shadow_color))
-                painter.drawPath(shadow_path)
-
-            if outline_width > 0.0:
-                pen = QPen(outline_color, outline_width * 2.0)
-                pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-                pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-                painter.setPen(pen)
-                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.setBrush(QBrush(highlight_color if active_word_index == index else fill_color))
                 painter.drawPath(path)
+                cursor_x += word_widths[index]
+                if index + 1 < len(tokens):
+                    cursor_x += space_width
+        else:
+            for line_index, line in enumerate(lines):
+                line_width = line_widths[line_index]
+                if alignment == "left":
+                    line_x = block_left
+                elif alignment == "right":
+                    line_x = block_left + (block_width - line_width)
+                else:
+                    line_x = block_left + (block_width - line_width) / 2.0
+                line_y = block_top + ascent + line_index * line_height
 
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(fill_color))
-            painter.drawPath(path)
+                path = QPainterPath()
+                path.addText(QPointF(line_x, line_y), font, line)
+
+                if has_shadow:
+                    shadow_path = QPainterPath(path)
+                    shadow_path.translate(float(clip.shadow_offset_x), float(clip.shadow_offset_y))
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    painter.setBrush(QBrush(shadow_color))
+                    painter.drawPath(shadow_path)
+
+                if outline_width > 0.0:
+                    pen = QPen(outline_color, outline_width * 2.0)
+                    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+                    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+                    painter.setPen(pen)
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.drawPath(path)
+
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QBrush(fill_color))
+                painter.drawPath(path)
         painter.end()
 
         encoded = QByteArray()

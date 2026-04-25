@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from app.domain.clips.base_clip import BaseClip
+from app.domain.keyframe import Keyframe
 
 
 @dataclass(slots=True)
@@ -17,3 +18,7 @@ class ImageClip(BaseClip):
     blur: float = 0.0
     vignette: float = 0.0
     color_preset: str = "none"
+    position_x_keyframes: list[Keyframe] = field(default_factory=list)
+    position_y_keyframes: list[Keyframe] = field(default_factory=list)
+    scale_keyframes: list[Keyframe] = field(default_factory=list)
+    rotation_keyframes: list[Keyframe] = field(default_factory=list)

@@ -5,7 +5,9 @@ from app.controllers.selection_controller import SelectionController
 from app.controllers.timeline_controller import TimelineController
 from app.services.thumbnail_service import ThumbnailService
 from app.services.waveform_service import WaveformService
+from app.ui.effects_drawer import TRANSITION_MIME_TYPE
 from app.ui.media_panel.media_item_widget import media_id_from_mime_data
+from app.ui.sticker_drawer import STICKER_MIME_TYPE
 from app.ui.timeline.clip_item import ClipItem
 from app.ui.timeline.timeline_scene import TimelineScene
 from PySide6.QtCore import QPoint, QRectF, Qt
@@ -112,6 +114,12 @@ class TimelineView(QGraphicsView):
         )
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
+        if event.mimeData().hasFormat(TRANSITION_MIME_TYPE):
+            event.acceptProposedAction()
+            return
+        if event.mimeData().hasFormat(STICKER_MIME_TYPE):
+            event.acceptProposedAction()
+            return
         media_id = media_id_from_mime_data(event.mimeData())
         if media_id is not None:
             event.acceptProposedAction()
@@ -119,6 +127,12 @@ class TimelineView(QGraphicsView):
         super().dragEnterEvent(event)
 
     def dragMoveEvent(self, event: QDragMoveEvent) -> None:
+        if event.mimeData().hasFormat(TRANSITION_MIME_TYPE):
+            event.acceptProposedAction()
+            return
+        if event.mimeData().hasFormat(STICKER_MIME_TYPE):
+            event.acceptProposedAction()
+            return
         media_id = media_id_from_mime_data(event.mimeData())
         if media_id is not None:
             event.acceptProposedAction()
@@ -126,6 +140,68 @@ class TimelineView(QGraphicsView):
         super().dragMoveEvent(event)
 
     def dropEvent(self, event: QDropEvent) -> None:
+        if event.mimeData().hasFormat(TRANSITION_MIME_TYPE):
+            transition_type = bytes(event.mimeData().data(TRANSITION_MIME_TYPE)).decode(
+                "utf-8",
+                errors="ignore",
+            ).strip()
+            if not transition_type:
+                event.ignore()
+                return
+
+            scene_pos = self.mapToScene(event.position().toPoint())
+            pair = self._find_clip_pair_near_scene_x(
+                scene_x=scene_pos.x(),
+                scene_y=scene_pos.y(),
+                edge_tolerance_px=30.0,
+            )
+            if pair is None:
+                event.ignore()
+                return
+
+            track_id, clip_a_id, clip_b_id = pair
+            if self._timeline_controller.add_transition(
+                track_id=track_id,
+                from_clip_id=clip_a_id,
+                to_clip_id=clip_b_id,
+                transition_type=transition_type,
+            ):
+                event.acceptProposedAction()
+            else:
+                event.ignore()
+            return
+
+        if event.mimeData().hasFormat(STICKER_MIME_TYPE):
+            sticker_path = bytes(event.mimeData().data(STICKER_MIME_TYPE)).decode(
+                "utf-8",
+                errors="ignore",
+            ).strip()
+            if not sticker_path:
+                event.ignore()
+                return
+
+            scene_pos = self.mapToScene(event.position().toPoint())
+            timeline_start = max(0.0, (scene_pos.x() - self._timeline_scene.left_gutter) / self._timeline_scene.pixels_per_second)
+            rounded_timeline_start = round(timeline_start, 3)
+            target_track = self._track_at_scene_y(scene_pos.y())
+            preferred_track_id = None
+            if target_track is not None and target_track.track_type.lower() in {"video", "overlay", "mixed"}:
+                preferred_track_id = target_track.track_id
+
+            created_clip_id = self._timeline_controller.add_sticker(
+                track_id=preferred_track_id,
+                sticker_path=sticker_path,
+                timeline_start=rounded_timeline_start,
+                duration_seconds=2.0,
+            )
+            if created_clip_id is None:
+                event.ignore()
+                return
+
+            self._selection_controller.select_clip(created_clip_id)
+            event.acceptProposedAction()
+            return
+
         media_id = media_id_from_mime_data(event.mimeData())
         if media_id is None:
             super().dropEvent(event)
@@ -542,6 +618,7 @@ class TimelineView(QGraphicsView):
 
     def contextMenuEvent(self, event: QContextMenuEvent) -> None:
         scene_pos = self.mapToScene(event.pos())
+        viewport_x = float(event.pos().x())
         scene_item = self.itemAt(event.pos())
         clip_item = self._clip_item_from_item(scene_item)
         menu = QMenu(self)
@@ -586,15 +663,39 @@ class TimelineView(QGraphicsView):
                 self._timeline_controller.ripple_delete_clip(clip_id)
             return
 
+        hovered_track = self._track_at_scene_y(scene_pos.y())
+        rename_track_action = None
+        role_actions: dict[object, str] = {}
+        if hovered_track is not None and viewport_x <= self._timeline_scene.left_gutter:
+            rename_track_action = menu.addAction("Rename Track...")
+            if hovered_track.track_type.lower() in {"audio", "mixed"}:
+                role_menu = menu.addMenu("Track Role")
+                current_role = str(getattr(hovered_track, "track_role", "music")).lower()
+                for role_value, role_label in (("voice", "Voice"), ("music", "Music"), ("sfx", "SFX")):
+                    role_action = role_menu.addAction(role_label)
+                    role_action.setCheckable(True)
+                    role_action.setChecked(current_role == role_value)
+                    role_actions[role_action] = role_value
+            menu.addSeparator()
+
         paste_action = menu.addAction("Paste")
         paste_action.setEnabled(self._timeline_controller.has_clipboard_clip())
         add_track_menu = menu.addMenu("Add Track")
         add_video_track = add_track_menu.addAction("Video Track")
+        add_overlay_track = add_track_menu.addAction("Overlay Track")
         add_audio_track = add_track_menu.addAction("Audio Track")
         add_text_track = add_track_menu.addAction("Text Track")
 
         triggered = menu.exec(self.mapToGlobal(event.pos()))
         if triggered is None:
+            return
+        if rename_track_action is not None and triggered == rename_track_action and hovered_track is not None:
+            value, accepted = QInputDialog.getText(self, "Rename Track", "Track name:", text=hovered_track.name)
+            if accepted and value.strip():
+                self._timeline_controller.rename_track(hovered_track.track_id, value)
+            return
+        if hovered_track is not None and triggered in role_actions:
+            self._timeline_controller.set_track_role(hovered_track.track_id, role_actions[triggered])
             return
         if triggered == paste_action:
             target_track_id = self._timeline_scene.track_id_at_scene_y(scene_pos.y())
@@ -604,6 +705,8 @@ class TimelineView(QGraphicsView):
             )
         elif triggered == add_video_track:
             self._timeline_controller.add_track("video")
+        elif triggered == add_overlay_track:
+            self._timeline_controller.add_track("overlay")
         elif triggered == add_audio_track:
             self._timeline_controller.add_track("audio")
         elif triggered == add_text_track:
@@ -841,6 +944,47 @@ class TimelineView(QGraphicsView):
         if mode == "fade_out":
             return max(0.0, min(clip_item.clip.duration, clip_item.clip.duration * (1.0 - ratio)))
         return 0.0
+
+    def _find_clip_pair_near_scene_x(
+        self,
+        scene_x: float,
+        scene_y: float,
+        edge_tolerance_px: float,
+    ) -> tuple[str, str, str] | None:
+        track = self._track_at_scene_y(scene_y)
+        if track is None:
+            return None
+
+        sorted_clips = list(track.sorted_clips())
+        best_pair: tuple[str, str, str] | None = None
+        best_distance = edge_tolerance_px + 1.0
+        for index in range(len(sorted_clips) - 1):
+            clip_a = sorted_clips[index]
+            clip_b = sorted_clips[index + 1]
+            edge_x = self._scene_x_for_time(clip_a.timeline_end)
+            distance = abs(scene_x - edge_x)
+            if distance <= edge_tolerance_px and distance < best_distance:
+                best_pair = (track.track_id, clip_a.clip_id, clip_b.clip_id)
+                best_distance = distance
+        return best_pair
+
+    def _track_at_scene_y(self, scene_y: float):
+        timeline = self._timeline_controller.active_timeline()
+        if timeline is None:
+            return None
+        track_id = self._timeline_scene.track_id_at_scene_y(scene_y)
+        if track_id is None:
+            return None
+        for track in timeline.tracks:
+            if track.track_id == track_id:
+                return track
+        return None
+
+    def _scene_x_for_time(self, time_seconds: float) -> float:
+        return (
+            self._timeline_scene.left_gutter
+            + max(0.0, float(time_seconds)) * self._timeline_scene.pixels_per_second
+        )
 
     def _last_mouse_scene_pos(self) -> QPoint:
         cursor = QCursor.pos()

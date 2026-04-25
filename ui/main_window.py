@@ -10,6 +10,7 @@ from app.ui.captions_panel import CaptionsPanel
 from app.ui.dialogs.export_dialog import ExportDialog
 from app.ui.effects_drawer import EffectsDrawer
 from app.ui.shared.icons import build_icon, icon_size
+from app.ui.sticker_drawer import StickerDrawer
 from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
@@ -49,6 +50,7 @@ class MainWindow(QMainWindow):
         self._build_main_toolbar()
         self._build_captions_dock()
         self._build_effects_dock()
+        self._build_sticker_dock()
         self._build_status_bar()
 
         self._app_controller.project_controller.project_changed.connect(self._refresh_window_title)
@@ -468,6 +470,13 @@ class MainWindow(QMainWindow):
         dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
         dock.setWidget(EffectsDrawer(self._app_controller, dock))
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+
+    def _build_sticker_dock(self) -> None:
+        dock = QDockWidget("Stickers", self)
+        dock.setObjectName("StickersDock")
+        dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
+        dock.setWidget(StickerDrawer(dock))
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, dock)
 
     def _on_undo_triggered(self) -> None:
         self._app_controller.timeline_controller.undo()

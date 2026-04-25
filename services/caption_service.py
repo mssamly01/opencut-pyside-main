@@ -1,19 +1,39 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
+from app.domain.word_timing import WordTiming
 
-@dataclass(slots=True, frozen=True)
+__all__ = ["CaptionSegment", "CaptionService", "WordTiming"]
+
+
+@dataclass(slots=True)
 class CaptionSegment:
     start_seconds: float
     end_seconds: float
     text: str
+    word_timings: list[WordTiming] = field(default_factory=list)
 
     @property
     def duration_seconds(self) -> float:
         return max(0.0, self.end_seconds - self.start_seconds)
+
+    def split_words_evenly(self) -> list[WordTiming]:
+        words = (self.text or "").split()
+        if not words:
+            return []
+        total = max(1e-6, self.duration_seconds)
+        per_word = total / len(words)
+        return [
+            WordTiming(
+                start_seconds=self.start_seconds + index * per_word,
+                end_seconds=self.start_seconds + (index + 1) * per_word,
+                text=word,
+            )
+            for index, word in enumerate(words)
+        ]
 
 
 class CaptionService:

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from app.controllers.playback_controller import PlaybackController
 from app.controllers.timeline_controller import TimelineController
 from app.domain.clips.base_clip import BaseClip
 from app.ui.inspector.adjust_inspector import AdjustInspector
-from PySide6.QtWidgets import QLabel, QTabWidget, QVBoxLayout, QWidget
+from app.ui.inspector.animation_inspector import AnimationInspector
+from PySide6.QtWidgets import QTabWidget, QVBoxLayout, QWidget
 
 
 class ClipInspectorTabs(QWidget):
@@ -12,12 +14,14 @@ class ClipInspectorTabs(QWidget):
     def __init__(
         self,
         timeline_controller: TimelineController,
+        playback_controller: PlaybackController,
         basic_widget: QWidget,
         clip: BaseClip,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._timeline_controller = timeline_controller
+        self._playback_controller = playback_controller
         self._basic_widget = basic_widget
         self._clip = clip
 
@@ -34,15 +38,13 @@ class ClipInspectorTabs(QWidget):
         self._adjust = AdjustInspector(timeline_controller, clip, self)
         self._tabs.addTab(self._adjust, "Adjust")
 
-        animation_placeholder = QWidget(self)
-        placeholder_layout = QVBoxLayout(animation_placeholder)
-        placeholder_layout.setContentsMargins(12, 12, 12, 12)
-        placeholder_label = QLabel("Keyframe and text animation will land in Sprint 3.", animation_placeholder)
-        placeholder_label.setWordWrap(True)
-        placeholder_label.setStyleSheet("color: #6d7684;")
-        placeholder_layout.addWidget(placeholder_label)
-        placeholder_layout.addStretch(1)
-        self._tabs.addTab(animation_placeholder, "Animation")
+        self._animation = AnimationInspector(
+            timeline_controller=timeline_controller,
+            playback_controller=playback_controller,
+            clip=clip,
+            parent=self,
+        )
+        self._tabs.addTab(self._animation, "Animation")
 
         root.addWidget(self._tabs)
 
@@ -52,3 +54,4 @@ class ClipInspectorTabs(QWidget):
         if callable(basic_setter):
             basic_setter(clip)
         self._adjust.set_clip(clip)
+        self._animation.set_clip(clip)

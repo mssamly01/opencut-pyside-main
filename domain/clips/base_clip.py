@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from app.domain.keyframe import Keyframe
 
 
 @dataclass(slots=True)
@@ -18,6 +20,7 @@ class BaseClip:
     is_muted: bool = False
     fade_in_seconds: float = 0.0
     fade_out_seconds: float = 0.0
+    opacity_keyframes: list[Keyframe] = field(default_factory=list)
 
     @property
     def timeline_end(self) -> float:

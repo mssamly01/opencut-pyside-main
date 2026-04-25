@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from pathlib import Path
 from typing import Literal
 from uuid import uuid4
 
@@ -9,27 +10,45 @@ from app.controllers.selection_controller import SelectionController
 from app.domain.clips.audio_clip import AudioClip
 from app.domain.clips.base_clip import BaseClip
 from app.domain.clips.image_clip import ImageClip
+from app.domain.clips.sticker_clip import StickerClip
 from app.domain.clips.text_clip import TextClip
 from app.domain.clips.video_clip import VideoClip
 from app.domain.commands import (
     AddClipCommand,
+    AddKeyframeCommand,
+    AddStickerClipCommand,
     AddTrackCommand,
+    AddTransitionCommand,
+    ChangeTransitionTypeCommand,
     CommandManager,
     CompositeCommand,
     DeleteClipCommand,
     MoveClipCommand,
     MoveClipToTrackCommand,
+    MoveKeyframeCommand,
+    RemoveKeyframeCommand,
     RemoveTrackCommand,
+    RemoveTransitionCommand,
+    SetKeyframeInterpolationCommand,
     SplitClipCommand,
     TrimClipCommand,
+    UpdateKeyframeBezierCommand,
+    UpdateKeyframeValueCommand,
     UpdatePropertyCommand,
+    UpdateTransitionDurationCommand,
 )
 from app.domain.commands.base_command import BaseCommand
+from app.domain.keyframe import Keyframe
 from app.domain.media_asset import MediaAsset
 from app.domain.project import Project
 from app.domain.snap_engine import SnapEngine
 from app.domain.timeline import Timeline
 from app.domain.track import Track
+from app.domain.transition import make_transition
+from app.services.transition_service import (
+    is_pair_adjacent,
+    max_transition_duration,
+)
 from PySide6.QtCore import QObject, Signal
 
 
@@ -55,6 +74,7 @@ class TimelineController(QObject):
         self._playhead_seconds = 3.5
         self._minimum_clip_duration_seconds = 16.0 / self._pixels_per_second
         self._clipboard_clip: BaseClip | None = None
+        self._auto_keyframe_enabled = False
 
         self._min_pps = 10.0
         self._max_pps = 2000.0
@@ -84,6 +104,16 @@ class TimelineController(QObject):
         if normalized_enabled == self._ripple_edit_enabled:
             return
         self._ripple_edit_enabled = normalized_enabled
+        self.timeline_changed.emit()
+
+    def auto_keyframe_enabled(self) -> bool:
+        return self._auto_keyframe_enabled
+
+    def set_auto_keyframe_enabled(self, enabled: bool) -> None:
+        normalized = bool(enabled)
+        if normalized == self._auto_keyframe_enabled:
+            return
+        self._auto_keyframe_enabled = normalized
         self.timeline_changed.emit()
 
     def set_pixels_per_second(self, pps: float) -> None:
@@ -633,9 +663,132 @@ class TimelineController(QObject):
     def set_track_hidden(self, track_id: str, is_hidden: bool) -> bool:
         return self._set_track_property(track_id, "is_hidden", bool(is_hidden))
 
+    def set_track_role(self, track_id: str, role: str) -> bool:
+        normalized_role = (role or "").strip().lower()
+        if normalized_role not in {"voice", "music", "sfx"}:
+            return False
+
+        timeline = self.active_timeline()
+        if timeline is None:
+            return False
+
+        track = self._find_track_by_id(timeline, track_id)
+        if track is None:
+            return False
+        if track.track_type.lower() not in {"audio", "mixed"}:
+            return False
+        return self._set_track_property(track_id, "track_role", normalized_role)
+
     def set_track_height(self, track_id: str, height: float) -> bool:
         clamped_height = max(28.0, min(float(height), 240.0))
         return self._set_track_property(track_id, "height", clamped_height)
+
+    def add_transition(
+        self,
+        track_id: str,
+        from_clip_id: str,
+        to_clip_id: str,
+        transition_type: str,
+        duration_seconds: float | None = None,
+    ) -> bool:
+        timeline = self.active_timeline()
+        if timeline is None:
+            return False
+
+        track = self._find_track_by_id(timeline, track_id)
+        if track is None or track.is_locked:
+            return False
+        if not is_pair_adjacent(track, from_clip_id, to_clip_id):
+            return False
+        if any(
+            transition.from_clip_id == from_clip_id and transition.to_clip_id == to_clip_id
+            for transition in track.transitions
+        ):
+            return False
+
+        max_duration = max_transition_duration(track, from_clip_id, to_clip_id)
+        if max_duration <= 0.05:
+            return False
+
+        requested_duration = 0.5 if duration_seconds is None else float(duration_seconds)
+        duration = max(0.05, min(max_duration, requested_duration))
+        try:
+            transition = make_transition(
+                transition_type=transition_type,
+                from_clip_id=from_clip_id,
+                to_clip_id=to_clip_id,
+                duration_seconds=duration,
+            )
+            self.execute_command(AddTransitionCommand(track, transition))
+        except ValueError:
+            return False
+        return True
+
+    def remove_transition(self, track_id: str, transition_id: str) -> bool:
+        timeline = self.active_timeline()
+        if timeline is None:
+            return False
+
+        track = self._find_track_by_id(timeline, track_id)
+        if track is None or track.is_locked:
+            return False
+        if self._find_transition_index(track, transition_id) is None:
+            return False
+
+        self.execute_command(RemoveTransitionCommand(track, transition_id))
+        return True
+
+    def update_transition_duration(self, track_id: str, transition_id: str, new_duration: float) -> bool:
+        timeline = self.active_timeline()
+        if timeline is None:
+            return False
+
+        track = self._find_track_by_id(timeline, track_id)
+        if track is None or track.is_locked:
+            return False
+
+        transition_index = self._find_transition_index(track, transition_id)
+        if transition_index is None:
+            return False
+
+        transition = track.transitions[transition_index]
+        max_duration = max_transition_duration(
+            track,
+            transition.from_clip_id,
+            transition.to_clip_id,
+        )
+        if max_duration <= 0.05:
+            return False
+
+        clamped_duration = max(0.05, min(float(new_duration), max_duration))
+        if abs(clamped_duration - float(transition.duration_seconds)) <= 1e-6:
+            return False
+
+        self.execute_command(
+            UpdateTransitionDurationCommand(track, transition_id, clamped_duration)
+        )
+        return True
+
+    def change_transition_type(self, track_id: str, transition_id: str, new_type: str) -> bool:
+        timeline = self.active_timeline()
+        if timeline is None:
+            return False
+
+        track = self._find_track_by_id(timeline, track_id)
+        if track is None or track.is_locked:
+            return False
+
+        transition_index = self._find_transition_index(track, transition_id)
+        if transition_index is None:
+            return False
+        if track.transitions[transition_index].transition_type == new_type:
+            return False
+
+        try:
+            self.execute_command(ChangeTransitionTypeCommand(track, transition_id, new_type))
+        except ValueError:
+            return False
+        return True
 
     def set_clip_fade(
         self,
@@ -733,6 +886,19 @@ class TimelineController(QObject):
         if abs(clip.gain_db - safe_gain) < 1e-6:
             return False
 
+        if self._auto_keyframe_enabled:
+            time_in_clip = self._time_in_clip(clip, self._playhead_seconds)
+            commands: list[BaseCommand] = [
+                UpdatePropertyCommand(clip, "gain_db", safe_gain),
+                AddKeyframeCommand(
+                    clip,
+                    "gain_db",
+                    Keyframe(time_seconds=time_in_clip, value=safe_gain),
+                ),
+            ]
+            self.execute_command(CompositeCommand(commands))
+            return True
+
         self.execute_command(UpdatePropertyCommand(clip, "gain_db", safe_gain))
         return True
 
@@ -774,6 +940,7 @@ class TimelineController(QObject):
             return False
 
         updates: list[BaseCommand] = []
+        time_in_clip = self._time_in_clip(clip, self._playhead_seconds)
         for attr, value, clamp in (
             ("position_x", position_x, lambda v: max(-2.0, min(3.0, float(v)))),
             ("position_y", position_y, lambda v: max(-2.0, min(3.0, float(v)))),
@@ -787,6 +954,14 @@ class TimelineController(QObject):
             if abs(float(current_value) - float(next_value)) <= 1e-6:
                 continue
             updates.append(UpdatePropertyCommand(clip, attr, next_value))
+            if self._auto_keyframe_enabled:
+                updates.append(
+                    AddKeyframeCommand(
+                        clip,
+                        attr,
+                        Keyframe(time_seconds=time_in_clip, value=next_value),
+                    )
+                )
 
         if not updates:
             return False
@@ -889,6 +1064,238 @@ class TimelineController(QObject):
             self.execute_command(changes[0])
         else:
             self.execute_command(CompositeCommand(changes))
+        return True
+
+    # --- Keyframe API (Sprint 3) ----------------------------------------
+    def add_keyframe(
+        self,
+        clip_id: str,
+        property_name: str,
+        time_seconds: float,
+        value: float,
+        interpolation: str = "linear",
+    ) -> bool:
+        clip = self._find_clip_by_id(clip_id)
+        if clip is None:
+            return False
+
+        timeline = self.active_timeline()
+        if timeline is None:
+            return False
+        track, _ = self._find_clip_with_track(timeline, clip_id)
+        if self._is_clip_locked(track, clip):
+            return False
+
+        time_in_clip = max(0.0, min(float(clip.duration), float(time_seconds)))
+        try:
+            keyframe = Keyframe(
+                time_seconds=time_in_clip,
+                value=float(value),
+                interpolation=interpolation,
+            )
+            self.execute_command(AddKeyframeCommand(clip, property_name, keyframe))
+        except ValueError:
+            return False
+        return True
+
+    def remove_keyframe(self, clip_id: str, property_name: str, time_seconds: float) -> bool:
+        clip = self._find_clip_by_id(clip_id)
+        if clip is None:
+            return False
+
+        timeline = self.active_timeline()
+        if timeline is None:
+            return False
+        track, _ = self._find_clip_with_track(timeline, clip_id)
+        if self._is_clip_locked(track, clip):
+            return False
+
+        try:
+            self.execute_command(
+                RemoveKeyframeCommand(
+                    clip,
+                    property_name,
+                    float(time_seconds),
+                )
+            )
+        except ValueError:
+            return False
+        return True
+
+    def move_keyframe(
+        self,
+        clip_id: str,
+        property_name: str,
+        old_time_seconds: float,
+        new_time_seconds: float,
+    ) -> bool:
+        clip = self._find_clip_by_id(clip_id)
+        if clip is None:
+            return False
+
+        timeline = self.active_timeline()
+        if timeline is None:
+            return False
+        track, _ = self._find_clip_with_track(timeline, clip_id)
+        if self._is_clip_locked(track, clip):
+            return False
+
+        clamped_new_time = max(0.0, min(float(new_time_seconds), float(clip.duration)))
+        try:
+            self.execute_command(
+                MoveKeyframeCommand(
+                    clip,
+                    property_name,
+                    float(old_time_seconds),
+                    clamped_new_time,
+                )
+            )
+        except ValueError:
+            return False
+        return True
+
+    def update_keyframe_value(
+        self,
+        clip_id: str,
+        property_name: str,
+        time_seconds: float,
+        new_value: float,
+    ) -> bool:
+        clip = self._find_clip_by_id(clip_id)
+        if clip is None:
+            return False
+
+        timeline = self.active_timeline()
+        if timeline is None:
+            return False
+        track, _ = self._find_clip_with_track(timeline, clip_id)
+        if self._is_clip_locked(track, clip):
+            return False
+
+        try:
+            self.execute_command(
+                UpdateKeyframeValueCommand(
+                    clip,
+                    property_name,
+                    float(time_seconds),
+                    float(new_value),
+                )
+            )
+        except ValueError:
+            return False
+        return True
+
+    def set_keyframe_interpolation(
+        self,
+        clip_id: str,
+        property_name: str,
+        time_seconds: float,
+        interpolation: str,
+    ) -> bool:
+        clip = self._find_clip_by_id(clip_id)
+        if clip is None:
+            return False
+
+        timeline = self.active_timeline()
+        if timeline is None:
+            return False
+        track, _ = self._find_clip_with_track(timeline, clip_id)
+        if self._is_clip_locked(track, clip):
+            return False
+
+        try:
+            self.execute_command(
+                SetKeyframeInterpolationCommand(
+                    clip,
+                    property_name,
+                    float(time_seconds),
+                    interpolation,
+                )
+            )
+        except ValueError:
+            return False
+        return True
+
+    def update_keyframe_bezier_control_points(
+        self,
+        clip_id: str,
+        property_name: str,
+        time_seconds: float,
+        cp1_dx: float,
+        cp1_dy: float,
+        cp2_dx: float,
+        cp2_dy: float,
+    ) -> bool:
+        return self.update_keyframe_bezier(
+            clip_id=clip_id,
+            property_name=property_name,
+            time_seconds=time_seconds,
+            cp1_dx=cp1_dx,
+            cp1_dy=cp1_dy,
+            cp2_dx=cp2_dx,
+            cp2_dy=cp2_dy,
+        )
+
+    def update_keyframe_bezier(
+        self,
+        clip_id: str,
+        property_name: str,
+        time_seconds: float,
+        cp1_dx: float,
+        cp1_dy: float,
+        cp2_dx: float,
+        cp2_dy: float,
+    ) -> bool:
+        clip = self._find_clip_by_id(clip_id)
+        if clip is None:
+            return False
+
+        timeline = self.active_timeline()
+        if timeline is None:
+            return False
+        track, _ = self._find_clip_with_track(timeline, clip_id)
+        if self._is_clip_locked(track, clip):
+            return False
+
+        attr_name = property_name if property_name.endswith("_keyframes") else f"{property_name}_keyframes"
+        keyframes = getattr(clip, attr_name, None)
+        if not isinstance(keyframes, list):
+            return False
+
+        target = next(
+            (
+                keyframe
+                for keyframe in keyframes
+                if abs(float(keyframe.time_seconds) - float(time_seconds)) <= 1e-4
+            ),
+            None,
+        )
+        if target is None or target.interpolation != "bezier":
+            return False
+
+        next_cp1_dx = max(0.0, min(1.0, float(cp1_dx)))
+        next_cp1_dy = float(cp1_dy)
+        next_cp2_dx = max(0.0, min(1.0, float(cp2_dx)))
+        next_cp2_dy = float(cp2_dy)
+        if (
+            abs(float(target.bezier_cp1_dx) - next_cp1_dx) <= 1e-6
+            and abs(float(target.bezier_cp1_dy) - next_cp1_dy) <= 1e-6
+            and abs(float(target.bezier_cp2_dx) - next_cp2_dx) <= 1e-6
+            and abs(float(target.bezier_cp2_dy) - next_cp2_dy) <= 1e-6
+        ):
+            return False
+
+        self.execute_command(
+            UpdateKeyframeBezierCommand(
+                clip=clip,
+                property_name=attr_name,
+                time_seconds=float(time_seconds),
+                cp1_dx=next_cp1_dx,
+                cp1_dy=next_cp1_dy,
+                cp2_dx=next_cp2_dx,
+                cp2_dy=next_cp2_dy,
+            )
+        )
         return True
 
     def undo(self) -> bool:
@@ -1262,6 +1669,50 @@ class TimelineController(QObject):
         self.timeline_edited.emit()
         return True
 
+    def add_sticker(
+        self,
+        track_id: str | None,
+        sticker_path: str,
+        timeline_start: float,
+        duration_seconds: float = 2.0,
+    ) -> str | None:
+        timeline = self.active_timeline()
+        if timeline is None:
+            return None
+
+        self._ensure_main_track_layout(timeline)
+        normalized_path = (sticker_path or "").strip()
+        if not normalized_path:
+            return None
+
+        clip = StickerClip(
+            clip_id=f"sticker_{uuid4().hex[:10]}",
+            name=Path(normalized_path).stem or "Sticker",
+            track_id=track_id or "",
+            timeline_start=max(0.0, float(timeline_start)),
+            duration=max(0.05, float(duration_seconds)),
+            media_id=None,
+            source_start=0.0,
+            source_end=None,
+            sticker_path=normalized_path,
+            scale=0.35,
+        )
+
+        destination_track = self._find_track_for_non_overlapping_placement(
+            timeline=timeline,
+            clip=clip,
+            proposed_start=clip.timeline_start,
+            preferred_track_id=track_id,
+            allow_create_track=True,
+        )
+        if destination_track is None or destination_track.is_locked:
+            return None
+
+        clip.track_id = destination_track.track_id
+        self.execute_command(AddStickerClipCommand(destination_track, clip))
+        self._selection_controller.select_clip(clip.clip_id)
+        return clip.clip_id
+
     def _find_clip_by_id(self, clip_id: str) -> BaseClip | None:
         timeline = self.active_timeline()
         if timeline is None:
@@ -1356,10 +1807,22 @@ class TimelineController(QObject):
                 return track
         return None
 
+    @staticmethod
+    def _find_transition_index(track: Track, transition_id: str) -> int | None:
+        for index, transition in enumerate(track.transitions):
+            if transition.transition_id == transition_id:
+                return index
+        return None
+
     def _resolve_clip_id_or_selection(self, clip_id: str | None) -> str | None:
         if clip_id is not None:
             return clip_id
         return self._selection_controller.selected_clip_id()
+
+    @staticmethod
+    def _time_in_clip(clip: BaseClip, absolute_time_seconds: float) -> float:
+        local = float(absolute_time_seconds) - float(clip.timeline_start)
+        return max(0.0, min(float(clip.duration), local))
 
     def _select_target_track_for_clip(
         self,
@@ -1391,6 +1854,8 @@ class TimelineController(QObject):
             return normalized_track_type in {"audio", "mixed"}
         if isinstance(clip, TextClip):
             return normalized_track_type in {"text", "overlay", "mixed"}
+        if isinstance(clip, StickerClip):
+            return normalized_track_type in {"video", "overlay", "mixed"}
         if isinstance(clip, (VideoClip, ImageClip)):
             return normalized_track_type in {"video", "overlay", "mixed"}
         return True
@@ -1461,6 +1926,8 @@ class TimelineController(QObject):
             track_type = "text"
         elif isinstance(clip, AudioClip):
             track_type = "audio"
+        elif isinstance(clip, StickerClip):
+            track_type = "overlay"
         elif isinstance(clip, (VideoClip, ImageClip)):
             track_type = "video"
         else:
@@ -1550,8 +2017,10 @@ class TimelineController(QObject):
     @staticmethod
     def _default_track_name_for_type(track_type: str) -> str:
         normalized = track_type.lower()
-        if normalized in {"video", "overlay"}:
+        if normalized == "video":
             return "Main"
+        if normalized == "overlay":
+            return "Overlay"
         if normalized == "text":
             return "Text"
         if normalized in {"audio", "mixed"}:
