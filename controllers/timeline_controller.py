@@ -207,6 +207,9 @@ class TimelineController(QObject):
     def set_playhead_seconds(self, playhead_seconds: float) -> None:
         self._playhead_seconds = max(0.0, playhead_seconds)
 
+    def playhead_seconds(self) -> float:
+        return self._playhead_seconds
+
     def active_project(self) -> Project | None:
         return self._project_controller.active_project()
 

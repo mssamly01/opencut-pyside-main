@@ -489,7 +489,7 @@ class TimelineScene(QGraphicsScene):
             painter.setPen(QColor("#5f7082"))
             fill = QColor("#2b313e")
             if button_spec.active:
-                fill = QColor("#f6c453")
+                fill = QColor("#00bcd4")
             painter.setBrush(fill)
             painter.drawRoundedRect(button_rect, 3.0, 3.0)
             painter.setPen(QColor("#0f141d" if button_spec.active else "#cdd4dc"))

@@ -870,8 +870,8 @@ class TimelineView(QGraphicsView):
         if selection_rect.width() < 1.0 and selection_rect.height() < 1.0:
             return
         painter.save()
-        painter.setPen(QPen(QColor("#f6c453"), 1.0, Qt.PenStyle.DashLine))
-        painter.setBrush(QBrush(QColor(246, 196, 83, 35)))
+        painter.setPen(QPen(QColor("#00bcd4"), 1.0, Qt.PenStyle.DashLine))
+        painter.setBrush(QBrush(QColor(0, 188, 212, 35)))
         painter.drawRect(selection_rect)
         painter.restore()
 

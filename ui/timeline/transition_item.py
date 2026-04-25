@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QGraphicsPathItem, QStyleOptionGraphicsItem, QWidg
 
 
 class TransitionItem(QGraphicsPathItem):
-    def __init__(self, transition: Transition, rect: QRectF, color_hex: str = "#f6c453") -> None:
+    def __init__(self, transition: Transition, rect: QRectF, color_hex: str = "#00bcd4") -> None:
         super().__init__()
         self.transition = transition
         self._color_hex = color_hex
@@ -43,7 +43,7 @@ class TransitionItem(QGraphicsPathItem):
         gradient.setColorAt(0.5, QColor(self._color_hex))
         gradient.setColorAt(1.0, QColor("#1f2933"))
         painter.setBrush(QBrush(gradient))
-        pen_color = "#ff5a36" if self._is_selected_state else "#f6c453"
+        pen_color = "#ff5a36" if self._is_selected_state else "#00bcd4"
         painter.setPen(QPen(QColor(pen_color), 1.4))
         painter.drawPath(self.path())
 

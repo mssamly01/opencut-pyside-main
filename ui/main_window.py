@@ -7,22 +7,19 @@ from app.controllers.app_controller import AppController
 from app.infrastructure.logging_config import default_log_directory
 from app.ui.app_shell import AppShell
 from app.ui.dialogs.export_dialog import ExportDialog
-from app.ui.shared.icons import build_icon, icon_size
-from PySide6.QtCore import Qt, QTimer, QUrl
+from app.ui.shared.icons import build_icon
+from app.ui.top_bar import TopBar
+from PySide6.QtCore import QTimer, QUrl
 from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
     QFileDialog,
-    QFrame,
-    QHBoxLayout,
     QLabel,
     QMainWindow,
-    QMenu,
-    QMenuBar,
     QMessageBox,
     QStatusBar,
-    QToolButton,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -35,15 +32,24 @@ class MainWindow(QMainWindow):
         self._dirty_label: QLabel | None = None
         self._timecode_label: QLabel | None = None
         self._project_info_label: QLabel | None = None
-        self._menu_bar_icon_strip: QWidget | None = None
+        self._top_bar: TopBar | None = None
 
         self.setWindowTitle("OpenCut PySide")
         self.resize(1440, 860)
 
+        self._top_bar = TopBar(self)
+        self._top_bar.export_requested.connect(self._on_export_project_triggered)
         self._app_shell = AppShell(app_controller=self._app_controller)
-        self.setCentralWidget(self._app_shell)
+        central = QWidget(self)
+        central_layout = QVBoxLayout(central)
+        central_layout.setContentsMargins(0, 0, 0, 0)
+        central_layout.setSpacing(0)
+        central_layout.addWidget(self._top_bar)
+        central_layout.addWidget(self._app_shell, 1)
+        self.setCentralWidget(central)
 
-        self._build_menu_bar()
+        self.menuBar().hide()
+        self._build_top_bar_menu()
         self._build_main_toolbar()
         self._build_status_bar()
 
@@ -88,216 +94,151 @@ class MainWindow(QMainWindow):
             action.triggered.connect(lambda _checked=False: callback())
         return action
 
-    def _build_menu_bar(self) -> None:
-        menu_bar: QMenuBar = self.menuBar()
+    def _build_top_bar_menu(self) -> None:
+        if self._top_bar is None:
+            return
 
-        file_menu: QMenu = menu_bar.addMenu("&File")
-        file_menu.addAction(
-            self._make_action(
-                "new-file",
-                "New Project",
-                self._on_new_project_triggered,
-                shortcut=QKeySequence.StandardKey.New,
-            )
-        )
-        file_menu.addAction(
-            self._make_action(
-                "file-open",
-                "Open Project...",
-                self._on_load_project_triggered,
-                shortcut=QKeySequence.StandardKey.Open,
-            )
-        )
-        file_menu.addAction(
-            self._make_action(
-                "file-open",
-                "Load Demo Project",
-                self._on_load_demo_project_triggered,
-                shortcut=QKeySequence("Ctrl+Shift+D"),
-            )
-        )
-        file_menu.addAction(
-            self._make_action(
-                "save",
-                "Save",
-                self._on_save_project_triggered,
-                shortcut=QKeySequence.StandardKey.Save,
-            )
-        )
-        file_menu.addAction(
-            self._make_action(
-                "save-as",
-                "Save As...",
-                self._on_save_project_as_triggered,
-                shortcut=QKeySequence("Ctrl+Shift+S"),
-            )
-        )
-        file_menu.addSeparator()
-        file_menu.addAction(
-            self._make_action(
-                "import-media",
-                "Import Media...",
-                self._on_import_media_triggered,
-                shortcut=QKeySequence("Ctrl+I"),
-            )
-        )
-        file_menu.addAction(
-            self._make_action(
-                "import-subtitle",
-                "Import Subtitle...",
-                self._on_import_subtitle_triggered,
-                shortcut=QKeySequence("Ctrl+Shift+I"),
-            )
-        )
-        file_menu.addAction(
-            self._make_action(
-                "export-subtitle",
-                "Export Subtitle...",
-                self._on_export_subtitle_triggered,
-                shortcut=QKeySequence("Ctrl+Shift+U"),
-            )
-        )
-        file_menu.addSeparator()
+        self._top_bar.clear_menu()
+
         self._export_action = self._make_action(
             "export",
             "Export MP4...",
             self._on_export_project_triggered,
             shortcut=QKeySequence("Ctrl+Shift+E"),
         )
-        file_menu.addAction(self._export_action)
-        file_menu.addSeparator()
-        file_menu.addAction(self._make_action("logs", "Open Logs Folder", self._on_open_logs_triggered))
-        file_menu.addSeparator()
-        file_menu.addAction(
+
+        file_actions = [
+            self._make_action(
+                "new-file",
+                "New Project",
+                self._on_new_project_triggered,
+                shortcut=QKeySequence.StandardKey.New,
+            ),
+            self._make_action(
+                "file-open",
+                "Open Project...",
+                self._on_load_project_triggered,
+                shortcut=QKeySequence.StandardKey.Open,
+            ),
+            self._make_action(
+                "file-open",
+                "Load Demo Project",
+                self._on_load_demo_project_triggered,
+                shortcut=QKeySequence("Ctrl+Shift+D"),
+            ),
+            self._make_action(
+                "save",
+                "Save",
+                self._on_save_project_triggered,
+                shortcut=QKeySequence.StandardKey.Save,
+            ),
+            self._make_action(
+                "save-as",
+                "Save As...",
+                self._on_save_project_as_triggered,
+                shortcut=QKeySequence("Ctrl+Shift+S"),
+            ),
+            self._make_action(
+                "import-media",
+                "Import Media...",
+                self._on_import_media_triggered,
+                shortcut=QKeySequence("Ctrl+I"),
+            ),
+            self._make_action(
+                "import-subtitle",
+                "Import Subtitle...",
+                self._on_import_subtitle_triggered,
+                shortcut=QKeySequence("Ctrl+Shift+I"),
+            ),
+            self._make_action(
+                "export-subtitle",
+                "Export Subtitle...",
+                self._on_export_subtitle_triggered,
+                shortcut=QKeySequence("Ctrl+Shift+U"),
+            ),
+            self._export_action,
+            self._make_action("logs", "Open Logs Folder", self._on_open_logs_triggered),
             self._make_action(
                 "delete",
                 "Quit",
                 self.close,
                 shortcut=QKeySequence.StandardKey.Quit,
-            )
-        )
+            ),
+        ]
 
-        edit_menu: QMenu = menu_bar.addMenu("&Edit")
-        edit_menu.addAction(
+        edit_actions = [
             self._make_action(
                 "undo",
                 "Undo",
                 self._on_undo_triggered,
                 shortcut=QKeySequence.StandardKey.Undo,
-            )
-        )
-        edit_menu.addAction(
+            ),
             self._make_action(
                 "redo",
                 "Redo",
                 self._on_redo_triggered,
                 shortcut=QKeySequence.StandardKey.Redo,
-            )
-        )
-        edit_menu.addSeparator()
-        edit_menu.addAction(
+            ),
             self._make_action(
                 "cut",
                 "Cut",
                 self._on_cut_triggered,
                 shortcut=QKeySequence.StandardKey.Cut,
-            )
-        )
-        edit_menu.addAction(
+            ),
             self._make_action(
                 "copy",
                 "Copy",
                 self._on_copy_triggered,
                 shortcut=QKeySequence.StandardKey.Copy,
-            )
-        )
-        edit_menu.addAction(
+            ),
             self._make_action(
                 "paste",
                 "Paste at Playhead",
                 self._on_paste_triggered,
                 shortcut=QKeySequence.StandardKey.Paste,
-            )
-        )
-        edit_menu.addSeparator()
-        edit_menu.addAction(self._make_action("split", "Split at Playhead", self._on_split_triggered, shortcut="S"))
-        edit_menu.addAction(
+            ),
+            self._make_action("split", "Split at Playhead", self._on_split_triggered, shortcut="S"),
             self._make_action(
                 "duplicate",
                 "Duplicate",
                 self._on_duplicate_triggered,
                 shortcut="Ctrl+D",
-            )
-        )
-        edit_menu.addAction(
+            ),
             self._make_action(
                 "delete",
                 "Delete",
                 self._on_delete_triggered,
                 shortcut="Delete",
-            )
-        )
+            ),
+        ]
 
-        view_menu: QMenu = menu_bar.addMenu("&View")
-        view_menu.addAction(
+        view_actions = [
             self._make_action(
                 "zoom-in",
                 "Zoom In Timeline",
                 self._app_shell.timeline_view.zoom_in,
                 shortcut="Ctrl+=",
-            )
-        )
-        view_menu.addAction(
+            ),
             self._make_action(
                 "zoom-out",
                 "Zoom Out Timeline",
                 self._app_shell.timeline_view.zoom_out,
                 shortcut="Ctrl+-",
-            )
-        )
-        view_menu.addAction(
+            ),
             self._make_action(
                 "fit",
                 "Fit Timeline",
                 self._app_shell.timeline_view.fit_timeline,
                 shortcut="Ctrl+0",
-            )
-        )
-        self._build_menu_bar_icon_strip(menu_bar)
+            ),
+        ]
 
-    def _build_menu_bar_icon_strip(self, menu_bar: QMenuBar) -> None:
-        actions = [self._export_action]
-        visible_actions = [action for action in actions if action is not None]
-        if not visible_actions:
-            return
+        for action in [*file_actions, *edit_actions, *view_actions]:
+            self.addAction(action)
 
-        container = QWidget(menu_bar)
-        container.setObjectName("menu_bar_icon_strip")
-        layout = QHBoxLayout(container)
-        layout.setContentsMargins(8, 1, 8, 1)
-        layout.setSpacing(0)
-
-        for index, action in enumerate(visible_actions):
-            button = QToolButton(container)
-            button.setDefaultAction(action)
-            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
-            button.setAutoRaise(True)
-            button.setIconSize(icon_size(20))
-            button.setFixedSize(34, 24)
-            layout.addWidget(button)
-
-            if index < len(visible_actions) - 1:
-                separator = QFrame(container)
-                separator.setFrameShape(QFrame.Shape.VLine)
-                separator.setFrameShadow(QFrame.Shadow.Plain)
-                separator.setLineWidth(0)
-                separator.setMidLineWidth(0)
-                separator.setFixedWidth(1)
-                separator.setStyleSheet("QFrame { background-color: #3a4452; }")
-                layout.addWidget(separator)
-
-        self._menu_bar_icon_strip = container
-        menu_bar.setCornerWidget(container, Qt.Corner.TopRightCorner)
+        self._top_bar.add_menu_section("File", file_actions)
+        self._top_bar.add_menu_section("Edit", edit_actions)
+        self._top_bar.add_menu_section("View", view_actions)
 
     def _build_main_toolbar(self) -> None:
         # Keep transport shortcuts available, but don't show the icon cluster on the main toolbar.
@@ -606,6 +547,8 @@ class MainWindow(QMainWindow):
     def _on_export_in_progress_changed(self, is_exporting: bool) -> None:
         if self._export_action is not None:
             self._export_action.setEnabled(not is_exporting)
+        if self._top_bar is not None:
+            self._top_bar.set_export_enabled(not is_exporting)
 
     def _refresh_status_bar(self, *_args: object) -> None:
         if self._project_info_label is None:
@@ -649,7 +592,10 @@ class MainWindow(QMainWindow):
         if project is not None and project.name:
             project_name = project.name
 
-        dirty_suffix = " *" if self._app_controller.has_unsaved_changes() else ""
+        is_dirty = self._app_controller.has_unsaved_changes()
+        dirty_suffix = " *" if is_dirty else ""
+        if self._top_bar is not None:
+            self._top_bar.set_project_name(project_name, dirty=is_dirty)
 
         project_path = self._app_controller.project_controller.active_project_path()
         if project_path:

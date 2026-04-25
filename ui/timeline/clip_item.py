@@ -259,7 +259,7 @@ class ClipItem(QGraphicsRectItem):
 
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        painter.setBrush(QBrush(QColor("#f6c453")))
+        painter.setBrush(QBrush(QColor("#00bcd4")))
         painter.setPen(QPen(QColor("#101418"), 1))
         half = 4.0
         y = 4.0 + half

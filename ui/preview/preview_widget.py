@@ -299,16 +299,16 @@ class _PreviewCanvas(QWidget):
 
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        painter.setPen(QPen(QColor("#f6c453"), 1.6))
-        painter.setBrush(QColor(246, 196, 83, 24))
+        painter.setPen(QPen(QColor("#00bcd4"), 1.6))
+        painter.setBrush(QColor(0, 188, 212, 24))
         from PySide6.QtGui import QPolygonF
 
         painter.drawPolygon(QPolygonF([corners["tl"], corners["tr"], corners["br"], corners["bl"]]))
-        painter.setBrush(QColor("#f6c453"))
+        painter.setBrush(QColor("#00bcd4"))
         for handle_name in ("tl", "tr", "bl", "br"):
             point = handles[handle_name]
             painter.drawEllipse(point, _HANDLE_RADIUS, _HANDLE_RADIUS)
-        painter.setPen(QPen(QColor("#f6c453"), 1.0))
+        painter.setPen(QPen(QColor("#00bcd4"), 1.0))
         painter.drawLine(top_center, handles["rot"])
         painter.setBrush(QColor("#ff5a36"))
         painter.drawEllipse(handles["rot"], _HANDLE_RADIUS, _HANDLE_RADIUS)

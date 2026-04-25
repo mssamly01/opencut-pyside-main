@@ -4,7 +4,7 @@ from PySide6.QtWidgets import QApplication
 
 # Dark theme inspired by CapCut / Premiere chrome.
 # Palette: #1a1d23 background, #22262d surfaces, #2c323c elevated,
-# #3a4452 borders, #cdd4dc text, #7a8794 muted, #f6c453 accent (warm amber).
+# #3a4452 borders, #cdd4dc text, #7a8794 muted, #00bcd4 accent (teal).
 _DARK_QSS = """
 QWidget {
     background-color: #1a1d23;
@@ -53,7 +53,7 @@ QToolButton {
 }
 QToolButton:hover { background-color: #2c323c; border-color: #3a4452; }
 QToolButton:pressed { background-color: #3a4452; }
-QToolButton:checked { background-color: #3a4452; border-color: #f6c453; color: #f6c453; }
+QToolButton:checked { background-color: #3a4452; border-color: #00bcd4; color: #00bcd4; }
 QToolButton:disabled { color: #5c6674; }
 
 QStatusBar {
@@ -80,7 +80,8 @@ QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QPlainTextEdit, QTextEdit {
     border: 1px solid #3a4452;
     border-radius: 3px;
     padding: 3px 6px;
-    selection-background-color: #3f6bb8;
+    selection-background-color: #00bcd4;
+    selection-color: #0c0e12;
 }
 QSpinBox::up-button, QDoubleSpinBox::up-button,
 QSpinBox::down-button, QDoubleSpinBox::down-button {
@@ -98,8 +99,8 @@ QListWidget, QListView, QTreeWidget, QTreeView, QTableView {
 QListWidget::item, QListView::item { padding: 3px 6px; }
 QListWidget::item:hover, QListView::item:hover { background-color: #2c323c; }
 QListWidget::item:selected, QListView::item:selected {
-    background-color: #3f6bb8;
-    color: #ffffff;
+    background-color: #00bcd4;
+    color: #0c0e12;
 }
 
 QDockWidget {
@@ -132,14 +133,14 @@ QTabBar::tab {
     margin-right: 0;
 }
 QTabBar::tab:hover { color: #c4ccd6; }
-QTabBar::tab:selected { color: #f7fbff; border-bottom: 2px solid #4a90e2; }
+QTabBar::tab:selected { color: #f7fbff; border-bottom: 2px solid #00bcd4; }
 
 QSlider::groove:horizontal {
     background: #14171c;
     height: 4px;
     border-radius: 2px;
 }
-QSlider::sub-page:horizontal { background: #f6c453; border-radius: 2px; }
+QSlider::sub-page:horizontal { background: #00bcd4; border-radius: 2px; }
 QSlider::handle:horizontal {
     background: #e6edf3;
     width: 12px;
@@ -156,7 +157,7 @@ QCheckBox::indicator {
     background: #14171c;
     border-radius: 2px;
 }
-QCheckBox::indicator:checked { background: #f6c453; border-color: #f6c453; }
+QCheckBox::indicator:checked { background: #00bcd4; border-color: #00bcd4; }
 
 QScrollBar:vertical {
     background: #14171c;
@@ -194,7 +195,7 @@ QSplitter::handle:vertical { height: 4px; }
     font-weight: 600;
 }
 #timecode_label {
-    color: #f6c453;
+    color: #00bcd4;
     font-family: "Consolas", "Menlo", monospace;
     font-size: 12pt;
     font-weight: 600;
@@ -204,6 +205,60 @@ QSplitter::handle:vertical { height: 4px; }
     color: #ff5a36;
     font-weight: 700;
     padding-right: 6px;
+}
+#top_bar {
+    background-color: #14171c;
+    border-bottom: 1px solid #3a4452;
+}
+QToolButton#top_menu_button {
+    background: transparent;
+    border: none;
+    color: #cdd4dc;
+    font-size: 14pt;
+    padding: 0;
+}
+QToolButton#top_menu_button:hover {
+    background-color: #2c323c;
+    border-radius: 4px;
+}
+QLabel#top_project_name {
+    color: #cdd4dc;
+    font-size: 10pt;
+    font-weight: 500;
+}
+QPushButton#top_export_button {
+    background-color: #00bcd4;
+    color: #0c0e12;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 16px;
+    font-weight: 600;
+}
+QPushButton#top_export_button:hover { background-color: #26c6da; }
+QPushButton#top_export_button:pressed { background-color: #0097a7; }
+#timeline_toolbar {
+    background-color: #1f242b;
+    border-top: 1px solid #3a4452;
+    border-bottom: 1px solid #3a4452;
+}
+QFrame#timeline_toolbar_sep {
+    color: #3a4452;
+    margin: 4px 6px;
+}
+QLabel#details_title {
+    font-size: 11pt;
+    font-weight: 600;
+    color: #e6edf3;
+    padding-bottom: 6px;
+}
+QFrame#details_separator { color: #3a4452; }
+QLabel#details_key {
+    color: #7a8794;
+    font-size: 9pt;
+}
+QLabel#details_value {
+    color: #cdd4dc;
+    font-size: 9pt;
 }
 """
 
