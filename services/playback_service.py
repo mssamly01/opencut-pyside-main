@@ -1,0 +1,340 @@
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from pathlib import Path
+
+from app.domain.clips.base_clip import BaseClip
+from app.domain.clips.image_clip import ImageClip
+from app.domain.clips.text_clip import TextClip
+from app.domain.clips.video_clip import VideoClip
+from app.domain.media_asset import MediaAsset
+from app.domain.project import Project
+from app.infrastructure.ffmpeg_gateway import FFmpegGateway
+from app.infrastructure.video_decoder import VideoDecoder
+
+
+@dataclass(slots=True, frozen=True)
+class PreviewFrameResult:
+    frame_bytes: bytes | None
+    message: str
+
+
+class PlaybackService:
+    _PREFETCH_WINDOW_SECONDS = 2.2
+    _MIN_PREFETCH_FRAME_COUNT = 24
+    _MAX_PREFETCH_FRAME_COUNT = 96
+    _headless_qt_app: object | None = None
+
+    def __init__(
+        self,
+        ffmpeg_gateway: FFmpegGateway | None = None,
+        video_decoder: VideoDecoder | None = None,
+    ) -> None:
+        self._ffmpeg_gateway = ffmpeg_gateway or FFmpegGateway()
+        self._video_decoder = video_decoder or VideoDecoder(ffmpeg_gateway=self._ffmpeg_gateway, max_cache_entries=420)
+        self._image_bytes_cache: dict[str, bytes] = {}
+
+    def get_preview_frame(
+        self,
+        project: Project | None,
+        time_seconds: float,
+        project_path: str | None = None,
+    ) -> PreviewFrameResult:
+        if project is None:
+            return PreviewFrameResult(frame_bytes=None, message="No project loaded")
+
+        active_clip = self._find_active_visual_clip(project, time_seconds)
+        if active_clip is None:
+            return PreviewFrameResult(frame_bytes=None, message="No visual clip at current time")
+
+        if isinstance(active_clip, TextClip):
+            return self._render_text_clip(active_clip, project)
+
+        media_asset = self._find_media_asset(project, active_clip.media_id)
+        if media_asset is None:
+            return PreviewFrameResult(frame_bytes=None, message="Missing media asset")
+
+        project_root = self._project_root(project_path)
+        media_path = self._resolve_media_path(media_asset.file_path, project_root)
+
+        if isinstance(active_clip, ImageClip) or media_asset.media_type.lower() == "image":
+            image_bytes = self._load_image_bytes(media_path)
+            if image_bytes is None:
+                return PreviewFrameResult(frame_bytes=None, message="Unable to load image")
+            return PreviewFrameResult(frame_bytes=image_bytes, message=media_asset.name)
+
+        source_time = self._clip_source_time(active_clip, time_seconds)
+        source_time = self._clamp_source_time_to_media(source_time, media_asset)
+        safe_fps = self._safe_fps(project.fps)
+        frame_index = self._frame_index(source_time, safe_fps)
+        normalized_media_path = str(media_path)
+        cached_frame = self._video_decoder.get_frame(normalized_media_path, safe_fps, frame_index)
+        if cached_frame is not None:
+            self._prefetch_window(
+                media_path=normalized_media_path,
+                fps=safe_fps,
+                frame_index=frame_index + 1,
+                media_asset=media_asset,
+            )
+            return PreviewFrameResult(frame_bytes=cached_frame, message=media_asset.name)
+
+        self._prefetch_window(
+            media_path=normalized_media_path,
+            fps=safe_fps,
+            frame_index=frame_index,
+            media_asset=media_asset,
+        )
+        cached_frame = self._video_decoder.get_frame(normalized_media_path, safe_fps, frame_index)
+        if cached_frame is not None:
+            return PreviewFrameResult(frame_bytes=cached_frame, message=media_asset.name)
+
+        quantized_source_time = self._time_from_frame_index(frame_index, safe_fps)
+        frame_bytes = self._ffmpeg_gateway.extract_frame_png(normalized_media_path, quantized_source_time)
+        if frame_bytes is None:
+            return PreviewFrameResult(frame_bytes=None, message="Unable to decode video frame")
+
+        self._video_decoder.put_frame(normalized_media_path, safe_fps, frame_index, frame_bytes)
+        return PreviewFrameResult(frame_bytes=frame_bytes, message=media_asset.name)
+
+    def _find_active_visual_clip(self, project: Project, time_seconds: float) -> BaseClip | None:
+        epsilon = 1e-6
+        for track in reversed(project.timeline.tracks):
+            if track.is_hidden or track.is_muted:
+                continue
+            for clip in reversed(track.sorted_clips()):
+                if not isinstance(clip, (VideoClip, ImageClip, TextClip)):
+                    continue
+                if clip.is_muted:
+                    continue
+                if clip.timeline_start - epsilon <= time_seconds < clip.timeline_end + epsilon:
+                    return clip
+        return None
+
+    @staticmethod
+    def _find_media_asset(project: Project, media_id: str | None) -> MediaAsset | None:
+        if media_id is None:
+            return None
+        for media_asset in project.media_items:
+            if media_asset.media_id == media_id:
+                return media_asset
+        return None
+
+    @staticmethod
+    def _clip_source_time(clip: BaseClip, time_seconds: float) -> float:
+        local_offset = max(0.0, time_seconds - clip.timeline_start)
+        source_time = clip.source_start + local_offset
+        if clip.source_end is None:
+            return source_time
+        return max(clip.source_start, min(source_time, clip.source_end))
+
+    @staticmethod
+    def _clamp_source_time_to_media(source_time: float, media_asset: MediaAsset) -> float:
+        if media_asset.duration_seconds is None:
+            return max(0.0, source_time)
+
+        media_duration = max(0.0, media_asset.duration_seconds)
+        if media_duration <= 0.0:
+            return 0.0
+
+        safe_end = max(0.0, media_duration - 0.001)
+        return max(0.0, min(source_time, safe_end))
+
+    @staticmethod
+    def _safe_fps(fps: float) -> float:
+        return fps if fps > 0 else 30.0
+
+    @staticmethod
+    def _frame_index(time_seconds: float, fps: float) -> int:
+        safe_fps = fps if fps > 0 else 30.0
+        return int(max(0.0, time_seconds) * safe_fps)
+
+    @staticmethod
+    def _time_from_frame_index(frame_index: int, fps: float) -> float:
+        safe_fps = fps if fps > 0 else 30.0
+        safe_index = max(0, frame_index)
+        return safe_index / safe_fps
+
+    @staticmethod
+    def _project_root(project_path: str | None) -> Path | None:
+        if project_path is None or not project_path.strip():
+            return None
+
+        resolved_path = Path(project_path).expanduser().resolve()
+        if resolved_path.is_dir():
+            return resolved_path
+        return resolved_path.parent
+
+    @staticmethod
+    def _resolve_media_path(file_path: str, project_root: Path | None) -> Path:
+        raw_path = Path(file_path).expanduser()
+        if raw_path.is_absolute():
+            return raw_path.resolve()
+
+        if project_root is not None:
+            return (project_root / raw_path).resolve()
+
+        return raw_path.resolve()
+
+    def _load_image_bytes(self, file_path: Path) -> bytes | None:
+        normalized_path = str(file_path.expanduser().resolve())
+        cached = self._image_bytes_cache.get(normalized_path)
+        if cached is not None:
+            return cached
+
+        try:
+            image_bytes = Path(normalized_path).read_bytes()
+        except OSError:
+            return None
+
+        if not image_bytes:
+            return None
+
+        self._image_bytes_cache[normalized_path] = image_bytes
+        return image_bytes
+
+    def _prefetch_window(self, media_path: str, fps: float, frame_index: int, media_asset: MediaAsset) -> None:
+        frame_count = self._prefetch_frame_count_for_fps(fps)
+        window_start = max(0, frame_index)
+        if self._video_decoder.has_prefetched_until(media_path, fps, window_start):
+            return
+        self._video_decoder.decode_window(
+            media_path=media_path,
+            fps=fps,
+            start_frame_index=window_start,
+            frame_count=frame_count,
+            media_duration_seconds=media_asset.duration_seconds,
+        )
+
+    @classmethod
+    def _prefetch_frame_count_for_fps(cls, fps: float) -> int:
+        safe_fps = fps if fps > 0 else 30.0
+        dynamic_count = int(round(safe_fps * cls._PREFETCH_WINDOW_SECONDS))
+        return max(cls._MIN_PREFETCH_FRAME_COUNT, min(cls._MAX_PREFETCH_FRAME_COUNT, dynamic_count))
+
+    @classmethod
+    def _ensure_qt_gui_application(cls) -> None:
+        from PySide6.QtWidgets import QApplication
+
+        if QApplication.instance() is not None:
+            return
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        cls._headless_qt_app = QApplication([])
+
+    @classmethod
+    def _render_text_clip(cls, clip: TextClip, project: Project) -> PreviewFrameResult:
+        cls._ensure_qt_gui_application()
+        from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QPointF, QRectF, Qt
+        from PySide6.QtGui import (
+            QBrush,
+            QColor,
+            QFont,
+            QFontMetricsF,
+            QImage,
+            QPainter,
+            QPainterPath,
+            QPen,
+        )
+
+        width = max(2, int(project.width))
+        height = max(2, int(project.height))
+        image = QImage(width, height, QImage.Format.Format_RGBA8888)
+        image.fill(QColor(0, 0, 0, 0))
+
+        painter = QPainter(image)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+
+        font = QFont(clip.font_family or "Arial", clip.font_size)
+        font.setBold(bool(clip.bold))
+        font.setItalic(bool(clip.italic))
+        font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
+        painter.setFont(font)
+
+        metrics = QFontMetricsF(font)
+        raw_text = clip.content if clip.content else "Text"
+        lines = raw_text.split("\n")
+        line_height = metrics.height()
+        total_height = max(line_height, line_height * len(lines))
+        line_widths = [metrics.horizontalAdvance(line) for line in lines]
+        block_width = max(line_widths) if line_widths else 0.0
+
+        alignment = (clip.alignment or "center").lower()
+        anchor_x = clip.position_x * width
+        anchor_y = clip.position_y * height
+
+        if alignment == "left":
+            block_left = anchor_x
+        elif alignment == "right":
+            block_left = anchor_x - block_width
+        else:
+            block_left = anchor_x - block_width / 2.0
+        block_top = anchor_y - total_height / 2.0
+
+        if clip.background_opacity > 0.0 and clip.background_color:
+            pad_x = max(4.0, line_height * 0.25)
+            pad_y = max(4.0, line_height * 0.15)
+            background_rect = QRectF(
+                block_left - pad_x,
+                block_top - pad_y,
+                block_width + 2 * pad_x,
+                total_height + 2 * pad_y,
+            )
+            bg_color = QColor(clip.background_color or "#000000")
+            bg_color.setAlphaF(max(0.0, min(1.0, float(clip.background_opacity))))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(bg_color))
+            painter.drawRoundedRect(background_rect, pad_y, pad_y)
+
+        fill_color = QColor(clip.color or "#ffffff")
+        outline_color = QColor(clip.outline_color or "#000000")
+        shadow_color = QColor(clip.shadow_color or "#000000")
+        outline_width = max(0.0, float(clip.outline_width))
+        has_shadow = abs(clip.shadow_offset_x) > 0.0 or abs(clip.shadow_offset_y) > 0.0
+
+        ascent = metrics.ascent()
+        for line_index, line in enumerate(lines):
+            line_width = line_widths[line_index]
+            if alignment == "left":
+                line_x = block_left
+            elif alignment == "right":
+                line_x = block_left + (block_width - line_width)
+            else:
+                line_x = block_left + (block_width - line_width) / 2.0
+            line_y = block_top + ascent + line_index * line_height
+
+            path = QPainterPath()
+            path.addText(QPointF(line_x, line_y), font, line)
+
+            if has_shadow:
+                shadow_path = QPainterPath(path)
+                shadow_path.translate(float(clip.shadow_offset_x), float(clip.shadow_offset_y))
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QBrush(shadow_color))
+                painter.drawPath(shadow_path)
+
+            if outline_width > 0.0:
+                pen = QPen(outline_color, outline_width * 2.0)
+                pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+                pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+                painter.setPen(pen)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawPath(path)
+
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(fill_color))
+            painter.drawPath(path)
+        painter.end()
+
+        encoded = QByteArray()
+        buffer = QBuffer(encoded)
+        if not buffer.open(QIODevice.OpenModeFlag.WriteOnly):
+            return PreviewFrameResult(frame_bytes=None, message="Unable to encode text frame")
+        try:
+            if not image.save(buffer, "PNG"):
+                return PreviewFrameResult(frame_bytes=None, message="Unable to encode text frame")
+        finally:
+            buffer.close()
+        frame_bytes = bytes(encoded)
+
+        return PreviewFrameResult(frame_bytes=frame_bytes, message=raw_text)

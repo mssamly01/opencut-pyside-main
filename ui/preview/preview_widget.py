@@ -1,0 +1,469 @@
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass
+
+from app.controllers.playback_controller import PlaybackController
+from app.controllers.project_controller import ProjectController
+from app.controllers.selection_controller import SelectionController
+from app.controllers.timeline_controller import TimelineController
+from app.domain.clips.base_clip import BaseClip
+from app.domain.clips.image_clip import ImageClip
+from app.domain.clips.text_clip import TextClip
+from app.domain.clips.video_clip import VideoClip
+from app.ui.preview.playback_toolbar import PlaybackToolbar
+from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtGui import QColor, QImage, QMouseEvent, QPainter, QPaintEvent, QPen, QPixmap, QTransform
+from PySide6.QtWidgets import QCheckBox, QHBoxLayout, QPushButton, QVBoxLayout, QWidget
+
+_ASPECT_PRESETS: list[tuple[str, int, int]] = [
+    ("16:9", 1920, 1080),
+    ("9:16", 1080, 1920),
+    ("1:1", 1080, 1080),
+    ("4:3", 1440, 1080),
+    ("21:9", 2560, 1080),
+]
+
+_HANDLE_RADIUS = 6.0
+_ROTATION_HANDLE_OFFSET = 28.0
+
+
+@dataclass(slots=True)
+class _DragState:
+    handle: str  # body | tl | tr | bl | br | rot
+    clip_id: str
+    start_widget_pos: QPointF
+    start_position_x: float
+    start_position_y: float
+    start_scale: float
+    start_rotation: float
+    start_radius: float = 0.0
+    start_angle: float = 0.0
+
+
+class _PreviewCanvas(QWidget):
+    def __init__(
+        self,
+        project_controller: ProjectController,
+        timeline_controller: TimelineController,
+        selection_controller: SelectionController,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._project_controller = project_controller
+        self._timeline_controller = timeline_controller
+        self._selection_controller = selection_controller
+        self._preview_image: QImage | None = None
+        self._preview_message = "No frame"
+        self._current_time = 0.0
+        self._is_playing = False
+        self._safe_zone_enabled = False
+        self._drag_state: _DragState | None = None
+
+        self.setMouseTracking(True)
+        self.setMinimumHeight(240)
+        self.setObjectName("preview_canvas")
+
+    def set_preview_state(
+        self,
+        image: QImage | None,
+        message: str,
+        current_time: float,
+        is_playing: bool,
+    ) -> None:
+        self._preview_image = image
+        self._preview_message = message
+        self._current_time = current_time
+        self._is_playing = is_playing
+        self.update()
+
+    def set_safe_zone_enabled(self, enabled: bool) -> None:
+        self._safe_zone_enabled = bool(enabled)
+        self.update()
+
+    def paintEvent(self, event: QPaintEvent) -> None:
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.fillRect(self.rect(), QColor("#0c0e12"))
+
+        project_rect = self._project_rect()
+        if project_rect.width() <= 1.0 or project_rect.height() <= 1.0:
+            return
+
+        painter.fillRect(project_rect, QColor("#11161f"))
+        if self._preview_image is None or self._preview_image.isNull():
+            painter.setPen(QColor("#8c9bab"))
+            painter.drawText(
+                project_rect,
+                Qt.AlignmentFlag.AlignCenter,
+                f"{self._preview_message}\nTime: {self._current_time:0.2f}s",
+            )
+        else:
+            pixmap = QPixmap.fromImage(self._preview_image)
+            scaled = pixmap.scaled(
+                project_rect.size().toSize(),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.FastTransformation
+                if self._is_playing
+                else Qt.TransformationMode.SmoothTransformation,
+            )
+            draw_x = project_rect.x() + (project_rect.width() - scaled.width()) / 2.0
+            draw_y = project_rect.y() + (project_rect.height() - scaled.height()) / 2.0
+            painter.drawPixmap(int(round(draw_x)), int(round(draw_y)), scaled)
+
+        if self._safe_zone_enabled:
+            self._draw_safe_zone(painter, project_rect)
+        self._draw_transform_overlay(painter, project_rect)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() != Qt.MouseButton.LeftButton:
+            super().mousePressEvent(event)
+            return
+        clip = self._selected_transform_clip()
+        if clip is None:
+            super().mousePressEvent(event)
+            return
+
+        geometry = self._overlay_geometry(clip)
+        if geometry is None:
+            super().mousePressEvent(event)
+            return
+        center, corners, handles, _top_center = geometry
+        pointer = event.position()
+
+        hit_handle = self._hit_handle(handles, pointer)
+        if hit_handle is None:
+            polygon_path = self._overlay_path(corners)
+            if not polygon_path.contains(pointer):
+                super().mousePressEvent(event)
+                return
+            hit_handle = "body"
+
+        start_radius = max(1.0, self._distance(center, pointer))
+        start_angle = math.degrees(math.atan2(pointer.y() - center.y(), pointer.x() - center.x()))
+        self._drag_state = _DragState(
+            handle=hit_handle,
+            clip_id=clip.clip_id,
+            start_widget_pos=QPointF(pointer.x(), pointer.y()),
+            start_position_x=float(getattr(clip, "position_x", 0.5)),
+            start_position_y=float(getattr(clip, "position_y", 0.5)),
+            start_scale=float(getattr(clip, "scale", 1.0)),
+            start_rotation=float(getattr(clip, "rotation", 0.0)),
+            start_radius=start_radius,
+            start_angle=start_angle,
+        )
+        self.setCursor(Qt.CursorShape.ClosedHandCursor if hit_handle == "body" else Qt.CursorShape.SizeAllCursor)
+        event.accept()
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        drag = self._drag_state
+        if drag is None:
+            super().mouseMoveEvent(event)
+            return
+
+        clip = self._clip_by_id(drag.clip_id)
+        project_rect = self._project_rect()
+        if clip is None or project_rect.width() <= 1.0 or project_rect.height() <= 1.0:
+            self._drag_state = None
+            self.unsetCursor()
+            super().mouseMoveEvent(event)
+            return
+
+        pos = event.position()
+        if drag.handle == "body":
+            dx = pos.x() - drag.start_widget_pos.x()
+            dy = pos.y() - drag.start_widget_pos.y()
+            self._timeline_controller.set_clip_transform(
+                drag.clip_id,
+                position_x=drag.start_position_x + (dx / project_rect.width()),
+                position_y=drag.start_position_y + (dy / project_rect.height()),
+            )
+            event.accept()
+            return
+
+        geometry = self._overlay_geometry(clip)
+        if geometry is None:
+            event.accept()
+            return
+        center, _corners, _handles, _top_center = geometry
+
+        if drag.handle == "rot":
+            angle_now = math.degrees(math.atan2(pos.y() - center.y(), pos.x() - center.x()))
+            new_rotation = drag.start_rotation + (angle_now - drag.start_angle)
+            self._timeline_controller.set_clip_transform(drag.clip_id, rotation=new_rotation)
+            event.accept()
+            return
+
+        current_radius = max(1.0, self._distance(center, pos))
+        ratio = current_radius / max(1.0, drag.start_radius)
+        self._timeline_controller.set_clip_transform(drag.clip_id, scale=drag.start_scale * ratio)
+        event.accept()
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton and self._drag_state is not None:
+            self._drag_state = None
+            self.unsetCursor()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def _draw_safe_zone(self, painter: QPainter, project_rect: QRectF) -> None:
+        margin_x = project_rect.width() * 0.1
+        margin_y = project_rect.height() * 0.1
+        safe = QRectF(
+            project_rect.left() + margin_x,
+            project_rect.top() + margin_y,
+            project_rect.width() - margin_x * 2.0,
+            project_rect.height() - margin_y * 2.0,
+        )
+        painter.save()
+        painter.setPen(QPen(QColor("#5f7082"), 1, Qt.PenStyle.DashLine))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(safe)
+        painter.restore()
+
+    def _draw_transform_overlay(self, painter: QPainter, project_rect: QRectF) -> None:
+        clip = self._selected_transform_clip()
+        if clip is None:
+            return
+        geometry = self._overlay_geometry(clip, project_rect)
+        if geometry is None:
+            return
+        _center, corners, handles, top_center = geometry
+
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setPen(QPen(QColor("#f6c453"), 1.6))
+        painter.setBrush(QColor(246, 196, 83, 24))
+        from PySide6.QtGui import QPolygonF
+
+        painter.drawPolygon(QPolygonF([corners["tl"], corners["tr"], corners["br"], corners["bl"]]))
+        painter.setBrush(QColor("#f6c453"))
+        for handle_name in ("tl", "tr", "bl", "br"):
+            point = handles[handle_name]
+            painter.drawEllipse(point, _HANDLE_RADIUS, _HANDLE_RADIUS)
+        painter.setPen(QPen(QColor("#f6c453"), 1.0))
+        painter.drawLine(top_center, handles["rot"])
+        painter.setBrush(QColor("#ff5a36"))
+        painter.drawEllipse(handles["rot"], _HANDLE_RADIUS, _HANDLE_RADIUS)
+        painter.restore()
+
+    def _project_rect(self) -> QRectF:
+        project = self._project_controller.active_project()
+        if project is None or project.width <= 0 or project.height <= 0:
+            return QRectF()
+        margin = 16.0
+        available = QRectF(
+            margin,
+            margin,
+            max(1.0, self.width() - margin * 2.0),
+            max(1.0, self.height() - margin * 2.0),
+        )
+        aspect = float(project.width) / float(project.height)
+        draw_width = available.width()
+        draw_height = draw_width / aspect
+        if draw_height > available.height():
+            draw_height = available.height()
+            draw_width = draw_height * aspect
+        x = available.left() + (available.width() - draw_width) * 0.5
+        y = available.top() + (available.height() - draw_height) * 0.5
+        return QRectF(x, y, draw_width, draw_height)
+
+    def _selected_transform_clip(self) -> BaseClip | None:
+        clip_id = self._selection_controller.selected_clip_id()
+        if not clip_id:
+            return None
+        clip = self._clip_by_id(clip_id)
+        if clip is None:
+            return None
+        if not isinstance(clip, (VideoClip, ImageClip, TextClip)):
+            return None
+        if not hasattr(clip, "position_x") or not hasattr(clip, "position_y"):
+            return None
+        return clip
+
+    def _clip_by_id(self, clip_id: str) -> BaseClip | None:
+        project = self._project_controller.active_project()
+        if project is None:
+            return None
+        for track in project.timeline.tracks:
+            for clip in track.clips:
+                if clip.clip_id == clip_id:
+                    return clip
+        return None
+
+    def _overlay_geometry(
+        self,
+        clip: BaseClip,
+        project_rect: QRectF | None = None,
+    ) -> tuple[QPointF, dict[str, QPointF], dict[str, QPointF], QPointF] | None:
+        target_rect = project_rect or self._project_rect()
+        if target_rect.width() <= 1.0 or target_rect.height() <= 1.0:
+            return None
+        position_x = float(getattr(clip, "position_x", 0.5))
+        position_y = float(getattr(clip, "position_y", 0.5))
+        scale = max(0.05, min(8.0, float(getattr(clip, "scale", 1.0))))
+        rotation = float(getattr(clip, "rotation", 0.0))
+
+        center = QPointF(
+            target_rect.left() + position_x * target_rect.width(),
+            target_rect.top() + position_y * target_rect.height(),
+        )
+        base_factor = 0.38 if isinstance(clip, TextClip) else 0.52
+        width = max(34.0, target_rect.width() * base_factor * scale)
+        height = max(24.0, target_rect.height() * base_factor * scale)
+        raw = QRectF(center.x() - width / 2.0, center.y() - height / 2.0, width, height)
+
+        transform = QTransform()
+        transform.translate(center.x(), center.y())
+        transform.rotate(rotation)
+        transform.translate(-center.x(), -center.y())
+
+        corners = {
+            "tl": transform.map(QPointF(raw.left(), raw.top())),
+            "tr": transform.map(QPointF(raw.right(), raw.top())),
+            "br": transform.map(QPointF(raw.right(), raw.bottom())),
+            "bl": transform.map(QPointF(raw.left(), raw.bottom())),
+        }
+        top_center = transform.map(QPointF(raw.center().x(), raw.top()))
+        vec_x = top_center.x() - center.x()
+        vec_y = top_center.y() - center.y()
+        length = math.hypot(vec_x, vec_y) or 1.0
+        rot = QPointF(
+            top_center.x() + (vec_x / length) * _ROTATION_HANDLE_OFFSET,
+            top_center.y() + (vec_y / length) * _ROTATION_HANDLE_OFFSET,
+        )
+        handles = {
+            "tl": corners["tl"],
+            "tr": corners["tr"],
+            "bl": corners["bl"],
+            "br": corners["br"],
+            "rot": rot,
+        }
+        return center, corners, handles, top_center
+
+    @staticmethod
+    def _overlay_path(corners: dict[str, QPointF]):
+        from PySide6.QtGui import QPainterPath
+
+        path = QPainterPath()
+        path.moveTo(corners["tl"])
+        path.lineTo(corners["tr"])
+        path.lineTo(corners["br"])
+        path.lineTo(corners["bl"])
+        path.closeSubpath()
+        return path
+
+    @staticmethod
+    def _distance(a: QPointF, b: QPointF) -> float:
+        return math.hypot(a.x() - b.x(), a.y() - b.y())
+
+    @staticmethod
+    def _hit_handle(handles: dict[str, QPointF], pointer: QPointF) -> str | None:
+        for name, pos in handles.items():
+            if math.hypot(pointer.x() - pos.x(), pointer.y() - pos.y()) <= (_HANDLE_RADIUS + 3.0):
+                return name
+        return None
+
+
+class PreviewWidget(QWidget):
+    def __init__(
+        self,
+        playback_controller: PlaybackController,
+        project_controller: ProjectController,
+        timeline_controller: TimelineController,
+        selection_controller: SelectionController,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._playback_controller = playback_controller
+        self._project_controller = project_controller
+        self._timeline_controller = timeline_controller
+        self._selection_controller = selection_controller
+
+        self._current_time = self._playback_controller.current_time()
+        self._current_preview_image: QImage | None = self._playback_controller.latest_preview_image()
+        self._preview_message = self._playback_controller.latest_preview_message()
+        self._is_playing = self._playback_controller.is_playing()
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
+        aspect_row = QHBoxLayout()
+        aspect_row.setContentsMargins(8, 6, 8, 0)
+        aspect_row.setSpacing(6)
+        for label, width, height in _ASPECT_PRESETS:
+            button = QPushButton(label, self)
+            button.setProperty("aspect_width", width)
+            button.setProperty("aspect_height", height)
+            button.clicked.connect(self._on_aspect_button_clicked)
+            aspect_row.addWidget(button)
+        self._safe_zone_check = QCheckBox("Safe Zone", self)
+        self._safe_zone_check.toggled.connect(self._on_safe_zone_toggled)
+        aspect_row.addWidget(self._safe_zone_check)
+        aspect_row.addStretch(1)
+        layout.addLayout(aspect_row)
+
+        self.preview_canvas = _PreviewCanvas(
+            project_controller=self._project_controller,
+            timeline_controller=self._timeline_controller,
+            selection_controller=self._selection_controller,
+            parent=self,
+        )
+        layout.addWidget(self.preview_canvas, 1)
+        layout.addWidget(PlaybackToolbar(self._playback_controller, self))
+
+        self._playback_controller.current_time_changed.connect(self._on_current_time_changed)
+        self._playback_controller.preview_frame_changed.connect(self._on_preview_frame_changed)
+        self._playback_controller.preview_message_changed.connect(self._on_preview_message_changed)
+        self._playback_controller.playback_state_changed.connect(self._on_playback_state_changed)
+        self._selection_controller.selection_changed.connect(self.preview_canvas.update)
+        self._project_controller.project_changed.connect(self.preview_canvas.update)
+        self._timeline_controller.timeline_changed.connect(self.preview_canvas.update)
+
+        self._render_preview()
+
+    def _on_aspect_button_clicked(self) -> None:
+        sender = self.sender()
+        if not isinstance(sender, QPushButton):
+            return
+        width = int(sender.property("aspect_width") or 0)
+        height = int(sender.property("aspect_height") or 0)
+        if width <= 0 or height <= 0:
+            return
+        if self._project_controller.set_project_resolution(width, height):
+            self._playback_controller.refresh_preview_frame()
+
+    def _on_safe_zone_toggled(self, enabled: bool) -> None:
+        self.preview_canvas.set_safe_zone_enabled(enabled)
+
+    def _on_current_time_changed(self, current_time: float) -> None:
+        self._current_time = current_time
+        if self._current_preview_image is None:
+            self._render_preview()
+
+    def _on_preview_frame_changed(self, frame_image: object) -> None:
+        if isinstance(frame_image, QImage) and not frame_image.isNull():
+            self._current_preview_image = frame_image
+        else:
+            self._current_preview_image = None
+        self._render_preview()
+
+    def _on_preview_message_changed(self, message: str) -> None:
+        self._preview_message = message
+        if self._current_preview_image is None:
+            self._render_preview()
+
+    def _on_playback_state_changed(self, state: str) -> None:
+        self._is_playing = state == "playing"
+        self._render_preview()
+
+    def _render_preview(self) -> None:
+        self.preview_canvas.set_preview_state(
+            self._current_preview_image,
+            self._preview_message,
+            self._current_time,
+            self._is_playing,
+        )

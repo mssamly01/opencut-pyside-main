@@ -1,0 +1,28 @@
+# Enforce LF line endings for all text files to avoid the mixed CRLF/LF
+# diffs that have shown up across the Python sources.
+* text=auto eol=lf
+
+*.py text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+*.txt text eol=lf
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.ini text eol=lf
+*.cfg text eol=lf
+
+# Binary assets should stay as-is.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.mp4 binary
+*.mov binary
+*.mkv binary
+*.wav binary
+*.mp3 binary
+*.flac binary
+*.woff binary
+*.woff2 binary

@@ -1,0 +1,60 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+.Python
+build/
+dist/
+downloads/
+eggs/
+.eggs/
+*.egg-info/
+*.egg
+pip-wheel-metadata/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.tox/
+
+# Type checkers
+.mypy_cache/
+.pyre/
+.pytype/
+.ruff_cache/
+
+# Project-specific
+bin/ffmpeg
+bin/ffmpeg.exe
+bin/ffprobe
+bin/ffprobe.exe
+exports/
+
+# Generated translation binaries — rebuilt by scripts/update_translations.sh
+i18n/*.qm
+
+# PyInstaller build artefacts
+packaging/build/
+packaging/dist/

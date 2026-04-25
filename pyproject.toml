@@ -1,0 +1,37 @@
+[project]
+name = "opencut-pyside"
+version = "0.1.0"
+description = "A PySide6 desktop video editor inspired by OpenCut / CapCut."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "opencut-pyside contributors" }]
+dependencies = [
+    "PySide6>=6.6",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7",
+    "ruff>=0.4",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "F",
+    "I",
+    "W",
+    "B",
+    "UP",
+]
+ignore = [
+    "E501",  # very long f-strings in UI code are deliberate.
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
