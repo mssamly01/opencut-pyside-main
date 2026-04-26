@@ -31,7 +31,12 @@ class FFmpegGateway:
             self._is_available_cache = executable_path.exists() or shutil.which(self._ffmpeg_executable) is not None
         return self._is_available_cache
 
-    def extract_frame_png(self, file_path: str, time_seconds: float) -> bytes | None:
+    def extract_frame_png(
+        self,
+        file_path: str,
+        time_seconds: float,
+        extra_video_filters: list[str] | None = None,
+    ) -> bytes | None:
         if not self.is_available():
             return None
 
@@ -44,14 +49,19 @@ class FFmpegGateway:
             return None
 
         safe_time = max(0.0, float(time_seconds))
+        filters = list(extra_video_filters or [])
 
-        command = self._build_extract_frame_command(source_path, safe_time, seek_before_input=True)
+        command = self._build_extract_frame_command(
+            source_path, safe_time, seek_before_input=True, extra_video_filters=filters
+        )
         frame_bytes = self._run_ffmpeg(command)
         if frame_bytes is not None:
             return frame_bytes
 
         # Fallback seek order for files that decode better with post-input seeking.
-        fallback_command = self._build_extract_frame_command(source_path, safe_time, seek_before_input=False)
+        fallback_command = self._build_extract_frame_command(
+            source_path, safe_time, seek_before_input=False, extra_video_filters=filters
+        )
         return self._run_ffmpeg(fallback_command)
 
     def extract_frame_sequence_png(
@@ -60,6 +70,7 @@ class FFmpegGateway:
         start_time_seconds: float,
         fps: float,
         frame_count: int,
+        extra_video_filters: list[str] | None = None,
     ) -> list[bytes]:
         if frame_count <= 0 or fps <= 0:
             return []
@@ -84,6 +95,7 @@ class FFmpegGateway:
             start_time_seconds=safe_time,
             fps=safe_fps,
             frame_count=safe_frame_count,
+            extra_video_filters=list(extra_video_filters or []),
         )
         payload = self._run_ffmpeg(command)
         if payload is None:
@@ -122,13 +134,22 @@ class FFmpegGateway:
         ]
         return self._run_ffmpeg(command)
 
-    def _build_extract_frame_command(self, source_path: Path, time_seconds: float, seek_before_input: bool) -> list[str]:
+    def _build_extract_frame_command(
+        self,
+        source_path: Path,
+        time_seconds: float,
+        seek_before_input: bool,
+        extra_video_filters: list[str] | None = None,
+    ) -> list[str]:
         command = [self._ffmpeg_executable, "-hide_banner", "-loglevel", "error", "-nostdin"]
         if seek_before_input:
             command.extend(["-ss", f"{time_seconds:.6f}"])
         command.extend(["-i", str(source_path)])
         if not seek_before_input:
             command.extend(["-ss", f"{time_seconds:.6f}"])
+        filters = list(extra_video_filters or [])
+        if filters:
+            command.extend(["-vf", ",".join(filters)])
         command.extend(
             [
                 "-frames:v",
@@ -151,7 +172,9 @@ class FFmpegGateway:
         start_time_seconds: float,
         fps: float,
         frame_count: int,
+        extra_video_filters: list[str] | None = None,
     ) -> list[str]:
+        filter_chain = [f"fps={fps:.6f}"] + list(extra_video_filters or [])
         return [
             self._ffmpeg_executable,
             "-hide_banner",
@@ -163,7 +186,7 @@ class FFmpegGateway:
             "-i",
             str(source_path),
             "-vf",
-            f"fps={fps:.6f}",
+            ",".join(filter_chain),
             "-frames:v",
             str(frame_count),
             "-an",

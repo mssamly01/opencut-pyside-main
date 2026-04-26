@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from collections import OrderedDict
 from dataclasses import dataclass
 
@@ -12,6 +13,14 @@ class DecodedFrame:
     payload: bytes
 
 
+def _filter_token(extra_video_filters: list[str] | None) -> str:
+    """Stable, short token identifying a filter chain. Empty for no filters."""
+    if not extra_video_filters:
+        return ""
+    joined = "|".join(extra_video_filters)
+    return hashlib.sha1(joined.encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
+
+
 class VideoDecoder:
     """Cache-backed decoder facade for timeline preview frames."""
 
@@ -22,23 +31,43 @@ class VideoDecoder:
     ) -> None:
         self._ffmpeg_gateway = ffmpeg_gateway or FFmpegGateway()
         self._max_cache_entries = max(60, max_cache_entries)
-        self._frame_cache: OrderedDict[tuple[str, int, int], bytes] = OrderedDict()
-        self._prefetched_until: dict[tuple[str, int], int] = {}
+        # Cache key: (media_path, fps_token, frame_index, filter_token).
+        self._frame_cache: OrderedDict[tuple[str, int, int, str], bytes] = OrderedDict()
+        # Prefetch tracking: max frame index reached per (media_path, fps_token, filter_token).
+        self._prefetched_until: dict[tuple[str, int, str], int] = {}
 
-    def get_frame(self, media_path: str, fps: float, frame_index: int) -> bytes | None:
-        key = self._cache_key(media_path, fps, frame_index)
+    def get_frame(
+        self,
+        media_path: str,
+        fps: float,
+        frame_index: int,
+        extra_video_filters: list[str] | None = None,
+    ) -> bytes | None:
+        key = self._cache_key(media_path, fps, frame_index, extra_video_filters)
         payload = self._frame_cache.get(key)
         if payload is None:
             return None
         self._frame_cache.move_to_end(key)
         return payload
 
-    def has_frame(self, media_path: str, fps: float, frame_index: int) -> bool:
-        key = self._cache_key(media_path, fps, frame_index)
+    def has_frame(
+        self,
+        media_path: str,
+        fps: float,
+        frame_index: int,
+        extra_video_filters: list[str] | None = None,
+    ) -> bool:
+        key = self._cache_key(media_path, fps, frame_index, extra_video_filters)
         return key in self._frame_cache
 
-    def has_prefetched_until(self, media_path: str, fps: float, frame_index: int) -> bool:
-        token = self._media_fps_token(media_path, fps)
+    def has_prefetched_until(
+        self,
+        media_path: str,
+        fps: float,
+        frame_index: int,
+        extra_video_filters: list[str] | None = None,
+    ) -> bool:
+        token = self._media_fps_token(media_path, fps, extra_video_filters)
         max_index = self._prefetched_until.get(token)
         if max_index is None:
             return False
@@ -51,6 +80,7 @@ class VideoDecoder:
         start_frame_index: int,
         frame_count: int,
         media_duration_seconds: float | None,
+        extra_video_filters: list[str] | None = None,
     ) -> list[DecodedFrame]:
         safe_fps = fps if fps > 0 else 30.0
         safe_start = max(0, int(start_frame_index))
@@ -63,6 +93,7 @@ class VideoDecoder:
             start_time_seconds=start_time_seconds,
             fps=safe_fps,
             frame_count=safe_count,
+            extra_video_filters=extra_video_filters,
         )
         if not sequence:
             return []
@@ -78,13 +109,13 @@ class VideoDecoder:
             return []
 
         highest_index = decoded_frames[-1].frame_index
-        token = self._media_fps_token(media_path, safe_fps)
+        token = self._media_fps_token(media_path, safe_fps, extra_video_filters)
         current_max = self._prefetched_until.get(token, -1)
         if highest_index > current_max:
             self._prefetched_until[token] = highest_index
 
         for decoded in decoded_frames:
-            key = self._cache_key(media_path, safe_fps, decoded.frame_index)
+            key = self._cache_key(media_path, safe_fps, decoded.frame_index, extra_video_filters)
             if key in self._frame_cache:
                 continue
             self._frame_cache[key] = decoded.payload
@@ -95,11 +126,18 @@ class VideoDecoder:
 
         return decoded_frames
 
-    def put_frame(self, media_path: str, fps: float, frame_index: int, payload: bytes) -> None:
-        key = self._cache_key(media_path, fps, frame_index)
+    def put_frame(
+        self,
+        media_path: str,
+        fps: float,
+        frame_index: int,
+        payload: bytes,
+        extra_video_filters: list[str] | None = None,
+    ) -> None:
+        key = self._cache_key(media_path, fps, frame_index, extra_video_filters)
         self._frame_cache[key] = payload
         self._frame_cache.move_to_end(key)
-        token = self._media_fps_token(media_path, fps)
+        token = self._media_fps_token(media_path, fps, extra_video_filters)
         current_max = self._prefetched_until.get(token, -1)
         if frame_index > current_max:
             self._prefetched_until[token] = frame_index
@@ -107,14 +145,23 @@ class VideoDecoder:
             self._frame_cache.popitem(last=False)
 
     @staticmethod
-    def _cache_key(media_path: str, fps: float, frame_index: int) -> tuple[str, int, int]:
+    def _cache_key(
+        media_path: str,
+        fps: float,
+        frame_index: int,
+        extra_video_filters: list[str] | None,
+    ) -> tuple[str, int, int, str]:
         fps_token = int(round(max(1.0, fps) * 1000.0))
-        return (media_path, fps_token, max(0, int(frame_index)))
+        return (media_path, fps_token, max(0, int(frame_index)), _filter_token(extra_video_filters))
 
     @staticmethod
-    def _media_fps_token(media_path: str, fps: float) -> tuple[str, int]:
+    def _media_fps_token(
+        media_path: str,
+        fps: float,
+        extra_video_filters: list[str] | None,
+    ) -> tuple[str, int, str]:
         fps_token = int(round(max(1.0, fps) * 1000.0))
-        return (media_path, fps_token)
+        return (media_path, fps_token, _filter_token(extra_video_filters))
 
     @staticmethod
     def _max_frame_index_for_duration(media_duration_seconds: float | None, fps: float) -> int | None:
