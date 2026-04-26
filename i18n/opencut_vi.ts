@@ -409,39 +409,94 @@
 <context>
     <name>EffectsPanel</name>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="60"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="61"/>
+        <source>Điện ảnh</source>
+        <translation>Điện ảnh</translation>
+    </message>
+    <message>
+        <location filename="../ui/sidebar/effects_panel.py" line="63"/>
+        <source>Hoài cổ</source>
+        <translation>Hoài cổ</translation>
+    </message>
+    <message>
+        <location filename="../ui/sidebar/effects_panel.py" line="65"/>
+        <source>Đen trắng</source>
+        <translation>Đen trắng</translation>
+    </message>
+    <message>
+        <location filename="../ui/sidebar/effects_panel.py" line="82"/>
         <source>Hiệu ứng màu</source>
         <translation>Hiệu ứng màu</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="65"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="87"/>
         <source>Chọn một clip video hoặc ảnh trên dòng thời gian để chỉnh màu.</source>
         <translation>Chọn một clip video hoặc ảnh trên dòng thời gian để chỉnh màu.</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="78"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="100"/>
         <source>Độ sáng</source>
         <translation>Độ sáng</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="79"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="101"/>
         <source>Tương phản</source>
         <translation>Tương phản</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="80"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="102"/>
         <source>Bão hoà</source>
         <translation>Bão hoà</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="81"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="103"/>
         <source>Sắc độ</source>
         <translation>Sắc độ</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="96"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="118"/>
         <source>Đặt lại màu</source>
         <translation>Đặt lại màu</translation>
+    </message>
+    <message>
+        <location filename="../ui/sidebar/effects_panel.py" line="128"/>
+        <source>LUT 3D</source>
+        <translation>LUT 3D</translation>
+    </message>
+    <message>
+        <location filename="../ui/sidebar/effects_panel.py" line="133"/>
+        <source>Không dùng LUT</source>
+        <translation>Không dùng LUT</translation>
+    </message>
+    <message>
+        <location filename="../ui/sidebar/effects_panel.py" line="136"/>
+        <source>Tệp LUT tuỳ chỉnh…</source>
+        <translation>Tệp LUT tuỳ chỉnh…</translation>
+    </message>
+    <message>
+        <location filename="../ui/sidebar/effects_panel.py" line="316"/>
+        <source>Đang dùng: {label}</source>
+        <translation>Đang dùng: {label}</translation>
+    </message>
+    <message>
+        <location filename="../ui/sidebar/effects_panel.py" line="335"/>
+        <source>Chọn tệp LUT (.cube)</source>
+        <translation>Chọn tệp LUT (.cube)</translation>
+    </message>
+    <message>
+        <location filename="../ui/sidebar/effects_panel.py" line="337"/>
+        <source>Tệp LUT (*.cube)</source>
+        <translation>Tệp LUT (*.cube)</translation>
+    </message>
+    <message>
+        <location filename="../ui/sidebar/effects_panel.py" line="347"/>
+        <source>Tệp LUT không hợp lệ</source>
+        <translation>Tệp LUT không hợp lệ</translation>
+    </message>
+    <message>
+        <location filename="../ui/sidebar/effects_panel.py" line="348"/>
+        <source>Tệp được chọn không phải tệp .cube hợp lệ (thiếu LUT_3D_SIZE).</source>
+        <translation>Tệp được chọn không phải tệp .cube hợp lệ (thiếu LUT_3D_SIZE).</translation>
     </message>
 </context>
 <context>
