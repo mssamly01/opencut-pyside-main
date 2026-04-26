@@ -247,7 +247,6 @@ def test_add_clip_from_media_on_main_with_overlap_ripples_subsequent() -> None:
         timeline_start=1.0,
         preferred_track_id=main_track.track_id,
     )
-<<<<<<< HEAD
     assert created_clip_id is not None
     created_clip = timeline_controller._find_clip_by_id(created_clip_id)
     assert created_clip is not None
@@ -334,39 +333,6 @@ def test_add_clip_from_media_can_force_new_track_creation() -> None:
 
 
 def test_build_empty_project_has_only_main_track() -> None:
-=======
-    assert created_clip_id is not None
-    created_clip = timeline_controller._find_clip_by_id(created_clip_id)
-    assert created_clip is not None
-    # New clip stays on main and existing later clip is rippled forward.
-    assert created_clip.track_id == main_track.track_id
-    assert len(project.timeline.tracks) == original_track_count
-    assert second_clip_before.timeline_start == pytest.approx(
-        original_second_start + created_clip.duration
-    )
-
-
-def test_delete_clip_on_main_auto_ripples() -> None:
-    timeline_controller, _selection_controller = _build_timeline_controller()
-    project = timeline_controller.active_project()
-    assert project is not None
-
-    main_track = next(track for track in project.timeline.tracks if track.is_main)
-    first_clip = main_track.clips[0]
-    second_clip = main_track.clips[1]
-    deleted_duration = first_clip.duration
-    original_second_start = second_clip.timeline_start
-
-    deleted = timeline_controller.delete_clip(first_clip.clip_id)
-    assert deleted is True
-    assert timeline_controller._find_clip_by_id(first_clip.clip_id) is None
-    assert second_clip.timeline_start == pytest.approx(original_second_start - deleted_duration)
-
-
-def test_build_empty_project_has_only_main_track() -> None:
-    from app.domain.project import build_empty_project
-
->>>>>>> 782f8ec6801ae58e198c32db52018999baab2572
     project = build_empty_project()
     assert len(project.timeline.tracks) == 1
     track = project.timeline.tracks[0]

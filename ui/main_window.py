@@ -412,8 +412,10 @@ class MainWindow(QMainWindow):
             )
             return
 
+        self._app_shell.left_rail.select("captions")
+        self._app_shell.left_sidebar_stack.show_category("captions")
         self.statusBar().showMessage(
-            self.tr("Đã nhập {count} đoạn phụ đề.").format(count=imported_count),
+            self.tr("Đã thêm {count} đoạn vào danh sách phụ đề.").format(count=imported_count),
             4000,
         )
 

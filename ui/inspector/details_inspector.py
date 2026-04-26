@@ -43,11 +43,17 @@ class DetailsInspector(QWidget):
         self._app_controller.project_controller.project_changed.connect(self._refresh)
         self._app_controller.timeline_controller.timeline_edited.connect(self._refresh)
         self._app_controller.selection_controller.selection_changed.connect(self._refresh)
+        self._app_controller.subtitle_selection_changed.connect(self._refresh)
+        self._app_controller.subtitle_library_changed.connect(self._refresh)
         self._refresh()
 
     def _refresh(self) -> None:
         self._clear_rows()
         project = self._app_controller.project_controller.active_project()
+        subtitle_segment = self._app_controller.selected_subtitle_segment()
+        if subtitle_segment is not None:
+            self._populate_subtitle_segment(subtitle_segment)
+            return
         clip = self._selected_clip(project)
         if clip is not None:
             self._populate_clip(clip, project)
@@ -96,6 +102,15 @@ class DetailsInspector(QWidget):
             self._add_row(self.tr("Nội dung"), (clip.content or "").strip() or "-")
             self._add_row(self.tr("Cỡ chữ"), str(clip.font_size))
             self._add_row(self.tr("Màu sắc"), clip.color)
+
+    def _populate_subtitle_segment(self, segment) -> None:
+        self._add_row(self.tr("Tên"), segment.source_name or "-")
+        self._add_row(self.tr("Loại"), self.tr("Phụ đề (danh sách)"))
+        self._add_row(self.tr("Điểm bắt đầu"), _format_duration(segment.start_seconds))
+        self._add_row(self.tr("Thời lượng clip"), _format_duration(segment.end_seconds - segment.start_seconds))
+        self._add_row(self.tr("Nội dung"), (segment.text or "").strip() or "-")
+        self._add_row(self.tr("Đường dẫn"), segment.source_path or "-")
+        self._add_row(self.tr("Đoạn"), str(int(segment.segment_index) + 1))
 
     def _media_asset_for_clip(self, clip: BaseClip, project: Project | None) -> MediaAsset | None:
         if project is None:

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from pathlib import Path
+
 from app.controllers.export_controller import ExportController
 from app.controllers.inspector_controller import InspectorController
 from app.controllers.playback_controller import PlaybackController
@@ -19,6 +22,25 @@ from app.services.waveform_service import WaveformService
 from PySide6.QtCore import QObject, QTimer, Signal
 
 
+@dataclass(slots=True, frozen=True)
+class SubtitleSegmentSelection:
+    entry_id: str
+    source_name: str
+    source_path: str
+    segment_index: int
+    start_seconds: float
+    end_seconds: float
+    text: str
+
+
+@dataclass(slots=True)
+class SubtitleLibraryEntry:
+    entry_id: str
+    source_path: str
+    source_name: str
+    segments: list[tuple[float, float, str]]
+
+
 class AppController(QObject):
     """Top-level coordinator between UI and feature controllers."""
 
@@ -26,6 +48,8 @@ class AppController(QObject):
     autosave_completed = Signal(str)
     autosave_failed = Signal(str)
     dirty_state_changed = Signal(bool)
+    subtitle_library_changed = Signal()
+    subtitle_selection_changed = Signal()
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -40,6 +64,8 @@ class AppController(QObject):
         self.waveform_loader = WaveformLoader(self.waveform_service, self)
         self.settings_service = SettingsService()
         self.autosave_service = AutosaveService(project_service=self.project_service)
+        self._subtitle_library: list[SubtitleLibraryEntry] = []
+        self._selected_subtitle: SubtitleSegmentSelection | None = None
         self.project_controller = ProjectController(
             self,
             media_service=self.media_service,
@@ -74,10 +100,12 @@ class AppController(QObject):
         )
         self.project_controller.project_changed.connect(self.selection_controller.clear_selection)
         self.project_controller.project_changed.connect(self._on_project_changed_for_autosave)
+        self.project_controller.project_changed.connect(self._on_project_changed_for_subtitles)
         self.project_controller.project_modified.connect(self.mark_dirty)
         self.project_controller.project_modified.connect(self._on_project_modified_for_autosave)
         self.timeline_controller.timeline_edited.connect(self._on_timeline_edited_for_autosave)
         self.timeline_controller.timeline_edited.connect(self.mark_dirty)
+        self.selection_controller.selection_changed.connect(self._on_timeline_selection_changed)
         self.timeline_controller.timeline_changed.connect(self.playback_controller.refresh_preview_frame)
         self.load_empty_project()
         self._autosave_periodic_timer.start()
@@ -138,11 +166,108 @@ class AppController(QObject):
         if not caption_segments:
             return 0
 
-        timeline_segments = [
-            (segment.start_seconds, segment.end_seconds, segment.text) for segment in caption_segments
+        normalized_source_path = str(Path(file_path).expanduser().resolve())
+        source_name = Path(normalized_source_path).name
+        stored_segments = [
+            (float(segment.start_seconds), float(segment.end_seconds), (segment.text or "").strip())
+            for segment in caption_segments
+            if (segment.text or "").strip() and float(segment.end_seconds) > float(segment.start_seconds)
         ]
-        imported_count = self.timeline_controller.add_caption_segments(timeline_segments)
+        if not stored_segments:
+            return 0
+
+        existing_entry = next(
+            (entry for entry in self._subtitle_library if entry.source_path == normalized_source_path),
+            None,
+        )
+        if existing_entry is not None:
+            existing_entry.segments = stored_segments
+            existing_entry.source_name = source_name
+            entry_id = existing_entry.entry_id
+        else:
+            entry_id = f"subtitle_{len(self._subtitle_library) + 1:03d}"
+            self._subtitle_library.append(
+                SubtitleLibraryEntry(
+                    entry_id=entry_id,
+                    source_path=normalized_source_path,
+                    source_name=source_name,
+                    segments=stored_segments,
+                )
+            )
+        self.subtitle_library_changed.emit()
+
+        if stored_segments:
+            start, end, text = stored_segments[0]
+            self._set_selected_subtitle(
+                SubtitleSegmentSelection(
+                    entry_id=entry_id,
+                    source_name=source_name,
+                    source_path=normalized_source_path,
+                    segment_index=0,
+                    start_seconds=start,
+                    end_seconds=end,
+                    text=text,
+                )
+            )
+        return len(stored_segments)
+
+    def subtitle_library_entries(self) -> tuple[SubtitleLibraryEntry, ...]:
+        return tuple(self._subtitle_library)
+
+    def selected_subtitle_segment(self) -> SubtitleSegmentSelection | None:
+        return self._selected_subtitle
+
+    def select_subtitle_segment(self, entry_id: str | None, segment_index: int | None = None) -> None:
+        if entry_id is None or segment_index is None:
+            self._set_selected_subtitle(None)
+            return
+
+        entry = next((item for item in self._subtitle_library if item.entry_id == entry_id), None)
+        if entry is None:
+            self._set_selected_subtitle(None)
+            return
+        if segment_index < 0 or segment_index >= len(entry.segments):
+            self._set_selected_subtitle(None)
+            return
+        start, end, text = entry.segments[segment_index]
+        self._set_selected_subtitle(
+            SubtitleSegmentSelection(
+                entry_id=entry.entry_id,
+                source_name=entry.source_name,
+                source_path=entry.source_path,
+                segment_index=segment_index,
+                start_seconds=start,
+                end_seconds=end,
+                text=text,
+            )
+        )
+
+    def load_subtitle_entry_to_timeline(
+        self,
+        entry_id: str,
+        timeline_offset_seconds: float | None = None,
+    ) -> int:
+        entry = next((item for item in self._subtitle_library if item.entry_id == entry_id), None)
+        if entry is None or not entry.segments:
+            return 0
+        imported_count = self.timeline_controller.add_caption_segments(
+            segments=entry.segments,
+            timeline_offset_seconds=timeline_offset_seconds,
+        )
+        if imported_count > 0:
+            self._set_selected_subtitle(None)
         return imported_count
+
+    def remove_subtitle_entry(self, entry_id: str) -> bool:
+        for index, entry in enumerate(self._subtitle_library):
+            if entry.entry_id != entry_id:
+                continue
+            del self._subtitle_library[index]
+            if self._selected_subtitle is not None and self._selected_subtitle.entry_id == entry_id:
+                self._set_selected_subtitle(None)
+            self.subtitle_library_changed.emit()
+            return True
+        return False
 
     def export_subtitles_to_file(self, file_path: str) -> int:
         from app.domain.clips.text_clip import TextClip
@@ -205,6 +330,12 @@ class AppController(QObject):
     def _on_project_changed_for_autosave(self) -> None:
         self._autosave_edit_timer.stop()
 
+    def _on_project_changed_for_subtitles(self) -> None:
+        if self._subtitle_library:
+            self._subtitle_library = []
+            self.subtitle_library_changed.emit()
+        self._set_selected_subtitle(None)
+
     def _on_project_modified_for_autosave(self) -> None:
         self._autosave_edit_timer.start()
 
@@ -222,3 +353,14 @@ class AppController(QObject):
             self.autosave_failed.emit(str(exc))
             return
         self.autosave_completed.emit(autosave_path)
+
+    def _on_timeline_selection_changed(self) -> None:
+        if self.selection_controller.selected_clip_id() is None:
+            return
+        self._set_selected_subtitle(None)
+
+    def _set_selected_subtitle(self, selection: SubtitleSegmentSelection | None) -> None:
+        if selection == self._selected_subtitle:
+            return
+        self._selected_subtitle = selection
+        self.subtitle_selection_changed.emit()

@@ -15,7 +15,20 @@ from app.services.keyframe_evaluator import resolve_clip_value_at
 from app.ui.preview.playback_toolbar import PlaybackPlayButton, PlaybackTimeLabel
 from app.ui.shared.icons import build_icon
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt
-from PySide6.QtGui import QAction, QColor, QImage, QMouseEvent, QPainter, QPaintEvent, QPen, QPixmap, QTransform
+from PySide6.QtGui import (
+    QAction,
+    QColor,
+    QFont,
+    QFontMetricsF,
+    QImage,
+    QMouseEvent,
+    QPainter,
+    QPainterPath,
+    QPaintEvent,
+    QPen,
+    QPixmap,
+    QTransform,
+)
 from PySide6.QtWidgets import QHBoxLayout, QMenu, QPushButton, QToolButton, QVBoxLayout, QWidget
 
 _ASPECT_PRESETS: list[tuple[str, int, int]] = [
@@ -112,18 +125,18 @@ class _PreviewCanvas(QWidget):
             )
             draw_x = project_rect.x() + (project_rect.width() - scaled.width()) / 2.0
             draw_y = project_rect.y() + (project_rect.height() - scaled.height()) / 2.0
-            clip = self._currently_rendered_clip()
-            if clip is not None and isinstance(clip, (VideoClip, ImageClip)):
+            active_clip = self._currently_rendered_clip()
+            if active_clip is not None and isinstance(active_clip, (VideoClip, ImageClip)):
                 time_in_clip = max(
                     0.0,
-                    min(float(clip.duration), self._current_time - float(clip.timeline_start)),
+                    min(float(active_clip.duration), self._current_time - float(active_clip.timeline_start)),
                 )
                 scale = max(
                     0.05,
                     min(
                         8.0,
                         resolve_clip_value_at(
-                            clip,
+                            active_clip,
                             "scale",
                             time_in_clip,
                             default=1.0,
@@ -131,19 +144,19 @@ class _PreviewCanvas(QWidget):
                     ),
                 )
                 rotation = resolve_clip_value_at(
-                    clip,
+                    active_clip,
                     "rotation",
                     time_in_clip,
                     default=0.0,
                 )
                 position_x = resolve_clip_value_at(
-                    clip,
+                    active_clip,
                     "position_x",
                     time_in_clip,
                     default=0.5,
                 )
                 position_y = resolve_clip_value_at(
-                    clip,
+                    active_clip,
                     "position_y",
                     time_in_clip,
                     default=0.5,
@@ -153,7 +166,7 @@ class _PreviewCanvas(QWidget):
                     min(
                         1.0,
                         resolve_clip_value_at(
-                            clip,
+                            active_clip,
                             "opacity",
                             time_in_clip,
                             default=1.0,
@@ -176,6 +189,7 @@ class _PreviewCanvas(QWidget):
                 painter.restore()
             else:
                 painter.drawPixmap(int(round(draw_x)), int(round(draw_y)), scaled)
+            self._draw_active_text_overlays(painter, project_rect, skip_when_text_base=isinstance(active_clip, TextClip))
 
         if self._safe_zone_enabled:
             self._draw_safe_zone(painter, project_rect)
@@ -312,6 +326,152 @@ class _PreviewCanvas(QWidget):
         painter.drawLine(top_center, handles["rot"])
         painter.setBrush(QColor("#ff5a36"))
         painter.drawEllipse(handles["rot"], _HANDLE_RADIUS, _HANDLE_RADIUS)
+        painter.restore()
+
+    def _draw_active_text_overlays(
+        self,
+        painter: QPainter,
+        project_rect: QRectF,
+        *,
+        skip_when_text_base: bool,
+    ) -> None:
+        if skip_when_text_base:
+            return
+        project = self._project_controller.active_project()
+        if project is None or project.width <= 0 or project.height <= 0:
+            return
+
+        text_clips = self._active_text_clips()
+        if not text_clips:
+            return
+
+        scale_factor = project_rect.width() / float(project.width)
+        for clip in text_clips:
+            self._draw_text_clip_overlay(
+                painter=painter,
+                clip=clip,
+                project_rect=project_rect,
+                scale_factor=scale_factor,
+            )
+
+    def _active_text_clips(self) -> list[TextClip]:
+        project = self._project_controller.active_project()
+        if project is None:
+            return []
+        epsilon = 1e-6
+        clips: list[TextClip] = []
+        for track in reversed(project.timeline.tracks):
+            if track.is_hidden or track.is_muted:
+                continue
+            for clip in track.sorted_clips():
+                if not isinstance(clip, TextClip):
+                    continue
+                if clip.is_muted:
+                    continue
+                if clip.timeline_start - epsilon <= self._current_time < clip.timeline_end + epsilon:
+                    clips.append(clip)
+        return clips
+
+    def _draw_text_clip_overlay(
+        self,
+        painter: QPainter,
+        clip: TextClip,
+        project_rect: QRectF,
+        scale_factor: float,
+    ) -> None:
+        project = self._project_controller.active_project()
+        if project is None:
+            return
+
+        font_size = max(1, int(round(float(clip.font_size) * scale_factor)))
+        font = QFont(clip.font_family or "Arial", font_size)
+        font.setBold(bool(clip.bold))
+        font.setItalic(bool(clip.italic))
+        font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
+
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+        painter.setFont(font)
+        painter.setOpacity(max(0.0, min(1.0, float(getattr(clip, "opacity", 1.0)))))
+
+        metrics = QFontMetricsF(font)
+        raw_text = clip.content or "Text"
+        lines = raw_text.split("\n")
+        line_height = metrics.height()
+        total_height = max(line_height, line_height * len(lines))
+        line_widths = [metrics.horizontalAdvance(line) for line in lines]
+        block_width = max(line_widths) if line_widths else 0.0
+
+        anchor_x = project_rect.left() + float(clip.position_x) * project_rect.width()
+        anchor_y = project_rect.top() + float(clip.position_y) * project_rect.height()
+        alignment = (clip.alignment or "center").lower()
+        if alignment == "left":
+            block_left = anchor_x
+        elif alignment == "right":
+            block_left = anchor_x - block_width
+        else:
+            block_left = anchor_x - block_width / 2.0
+        block_top = anchor_y - total_height / 2.0
+
+        if clip.background_opacity > 0.0 and clip.background_color:
+            pad_x = max(4.0, line_height * 0.25)
+            pad_y = max(4.0, line_height * 0.15)
+            bg_color = QColor(clip.background_color or "#000000")
+            bg_color.setAlphaF(max(0.0, min(1.0, float(clip.background_opacity))))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(bg_color)
+            painter.drawRoundedRect(
+                QRectF(
+                    block_left - pad_x,
+                    block_top - pad_y,
+                    block_width + 2 * pad_x,
+                    total_height + 2 * pad_y,
+                ),
+                pad_y,
+                pad_y,
+            )
+
+        fill_color = QColor(clip.color or "#ffffff")
+        outline_color = QColor(clip.outline_color or "#000000")
+        shadow_color = QColor(clip.shadow_color or "#000000")
+        outline_width = max(0.0, float(clip.outline_width) * scale_factor)
+        shadow_offset_x = float(clip.shadow_offset_x) * scale_factor
+        shadow_offset_y = float(clip.shadow_offset_y) * scale_factor
+        has_shadow = abs(shadow_offset_x) > 0.0 or abs(shadow_offset_y) > 0.0
+        ascent = metrics.ascent()
+
+        for line_index, line in enumerate(lines):
+            line_width = line_widths[line_index]
+            if alignment == "left":
+                line_x = block_left
+            elif alignment == "right":
+                line_x = block_left + (block_width - line_width)
+            else:
+                line_x = block_left + (block_width - line_width) / 2.0
+            line_y = block_top + ascent + line_index * line_height
+
+            path = QPainterPath()
+            path.addText(QPointF(line_x, line_y), font, line)
+
+            if has_shadow:
+                shadow_path = QPainterPath(path)
+                shadow_path.translate(shadow_offset_x, shadow_offset_y)
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(shadow_color)
+                painter.drawPath(shadow_path)
+
+            if outline_width > 0.0:
+                pen = QPen(outline_color, outline_width * 2.0)
+                pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+                pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+                painter.setPen(pen)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawPath(path)
+
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(fill_color)
+            painter.drawPath(path)
+
         painter.restore()
 
     def _project_rect(self) -> QRectF:

@@ -54,6 +54,8 @@ class TimelineScene(QGraphicsScene):
         self.pixels_per_second = 90.0
         self.ruler_height = 24.0
         self.track_gap = 6.0
+        self.main_adjacent_gap = 10.0
+        self.main_edge_padding = 12.0
         self.left_gutter = 160.0
         self.right_padding = 80.0
         self.top_padding = 6.0
@@ -145,17 +147,33 @@ class TimelineScene(QGraphicsScene):
         if self._project is not None:
             total_duration = max(total_duration, self._project.timeline.total_duration() + 2.0)
 
-        current_y = self.ruler_height + self.top_padding
-        for track in tracks:
-            lane_height = max(28.0, min(float(track.height), 240.0))
-            self.track_layouts.append(TrackLayout(track_id=track.track_id, y=current_y, height=lane_height))
-            current_y += lane_height + self.track_gap
+        lane_heights = [self._display_track_height(track) for track in tracks]
+        inter_track_gaps = self._build_inter_track_gaps(tracks)
+        top_main_padding, bottom_main_padding = self._main_edge_paddings(tracks)
+        stack_height = (
+            sum(lane_heights)
+            + sum(inter_track_gaps)
+            + top_main_padding
+            + bottom_main_padding
+        )
 
         calculated_width = self.left_gutter + (total_duration * self.pixels_per_second) + self.right_padding
-        calculated_height = current_y - self.track_gap + self.bottom_padding
+        minimum_scene_height = self.ruler_height + self.top_padding + stack_height + self.bottom_padding
         scene_width = max(calculated_width, self._last_min_width)
-        scene_height = max(calculated_height, self._last_min_height)
+        scene_height = max(minimum_scene_height, self._last_min_height)
         self.setSceneRect(0, 0, scene_width, scene_height)
+
+        current_y = self.ruler_height + self.top_padding + top_main_padding
+        if self._should_center_stack(tracks):
+            available_height = scene_height - self.ruler_height - self.top_padding - self.bottom_padding
+            if available_height > stack_height:
+                current_y += (available_height - stack_height) / 2.0
+
+        for index, (track, lane_height) in enumerate(zip(tracks, lane_heights)):
+            self.track_layouts.append(TrackLayout(track_id=track.track_id, y=current_y, height=lane_height))
+            current_y += lane_height
+            if index < len(inter_track_gaps):
+                current_y += inter_track_gaps[index]
 
         ruler_duration = max(
             total_duration,
@@ -253,12 +271,9 @@ class TimelineScene(QGraphicsScene):
                 self._draw_track_clips(track, layout)
 
     def _draw_track_background(self, track: Track, layout: TrackLayout) -> None:
-        border_pen = QPen(QColor("#414c58"), 1)
+        lane_color, border_color = self._track_palette(track)
+        border_pen = QPen(border_color, 1)
         border_pen.setCosmetic(True)
-
-        lane_color = QColor("#1f2430")
-        if track.is_hidden:
-            lane_color = QColor("#1b202a")
         lane_rect = QRectF(
             self.left_gutter,
             layout.y,
@@ -398,13 +413,13 @@ class TimelineScene(QGraphicsScene):
     @staticmethod
     def _clip_color(clip: BaseClip) -> str:
         if isinstance(clip, VideoClip):
-            return "#3f6bb8"
+            return "#4a78d0"
         if isinstance(clip, ImageClip):
-            return "#a85fb8"
+            return "#8f6ad4"
         if isinstance(clip, TextClip):
-            return "#c48a38"
+            return "#d39a45"
         if isinstance(clip, AudioClip):
-            return "#3a9b6f"
+            return "#45a47a"
         return "#6f8192"
 
     def show_snap_guide(self, scene_x: float) -> None:
@@ -465,7 +480,7 @@ class TimelineScene(QGraphicsScene):
                 self.left_gutter - 92.0,
                 max(12.0, layout.height - 16.0),
             )
-            painter.setPen(QColor("#e6edf3" if not track.is_hidden else "#7a8794"))
+            painter.setPen(self._track_title_color(track))
             painter.drawText(
                 title_rect,
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
@@ -473,7 +488,8 @@ class TimelineScene(QGraphicsScene):
             )
 
             handle_y = layout.bottom
-            painter.setPen(QPen(QColor("#414c58"), 1))
+            _, handle_color = self._track_palette(track)
+            painter.setPen(QPen(handle_color, 1))
             painter.drawLine(
                 QPointF(sticky_left, handle_y),
                 QPointF(sticky_left + self.left_gutter, handle_y),
@@ -503,3 +519,71 @@ class TimelineScene(QGraphicsScene):
             if track.track_id == track_id:
                 return track
         return None
+
+    @staticmethod
+    def _should_center_stack(tracks: list[Track]) -> bool:
+        return len(tracks) == 1 and tracks[0].is_main
+
+    def _build_inter_track_gaps(self, tracks: list[Track]) -> list[float]:
+        if len(tracks) < 2:
+            return []
+        gaps: list[float] = []
+        for upper, lower in zip(tracks, tracks[1:]):
+            gap = self.track_gap
+            if upper.is_main or lower.is_main:
+                gap = max(gap, self.main_adjacent_gap)
+            gaps.append(gap)
+        return gaps
+
+    def _main_edge_paddings(self, tracks: list[Track]) -> tuple[float, float]:
+        if not tracks:
+            return 0.0, 0.0
+        top_padding = self.main_edge_padding if tracks[0].is_main else 0.0
+        bottom_padding = self.main_edge_padding if tracks[-1].is_main else 0.0
+        return top_padding, bottom_padding
+
+    @staticmethod
+    def _display_track_height(track: Track) -> float:
+        base_height = max(28.0, min(float(track.height), 240.0))
+        uses_default_height = abs(base_height - 58.0) < 1e-6
+        normalized_type = track.track_type.lower()
+
+        if normalized_type == "text" and uses_default_height:
+            return 40.0
+
+        if track.is_main and bool(track.clips):
+            return max(base_height, 86.0) if not uses_default_height else 86.0
+
+        return base_height
+
+    @staticmethod
+    def _track_palette(track: Track) -> tuple[QColor, QColor]:
+        if track.is_hidden:
+            return QColor("#1a1f27"), QColor("#38424f")
+
+        normalized_type = track.track_type.lower()
+        if track.is_main:
+            return QColor("#1c2736"), QColor("#455a76")
+        if normalized_type == "text":
+            return QColor("#32281d"), QColor("#6a5638")
+        if normalized_type in {"audio", "mixed"}:
+            return QColor("#1f2d28"), QColor("#47695b")
+        if normalized_type == "overlay":
+            return QColor("#2a2537"), QColor("#615884")
+        return QColor("#1f2430"), QColor("#414c58")
+
+    @staticmethod
+    def _track_title_color(track: Track) -> QColor:
+        if track.is_hidden:
+            return QColor("#7a8794")
+
+        normalized_type = track.track_type.lower()
+        if track.is_main:
+            return QColor("#d9e8ff")
+        if normalized_type == "text":
+            return QColor("#ffd9a3")
+        if normalized_type in {"audio", "mixed"}:
+            return QColor("#caf3df")
+        if normalized_type == "overlay":
+            return QColor("#dbcfff")
+        return QColor("#e6edf3")
