@@ -140,6 +140,7 @@ class ProjectService:
             "is_muted": track.is_muted,
             "is_locked": track.is_locked,
             "is_hidden": track.is_hidden,
+            "is_main": track.is_main,
             "height": track.height,
             "clips": [self._clip_to_dict(clip) for clip in track.clips],
             "transitions": [
@@ -201,6 +202,7 @@ class ProjectService:
             is_muted=self._read_bool(payload, "is_muted", default=False),
             is_locked=self._read_bool(payload, "is_locked", default=False),
             is_hidden=self._read_bool(payload, "is_hidden", default=False),
+            is_main=self._read_bool(payload, "is_main", default=False),
             height=self._read_float(payload, "height", default=58.0),
             clips=[
                 clip
