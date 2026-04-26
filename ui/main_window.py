@@ -9,8 +9,8 @@ from app.ui.app_shell import AppShell
 from app.ui.dialogs.export_dialog import ExportDialog
 from app.ui.shared.icons import build_icon
 from app.ui.top_bar import TopBar
-from PySide6.QtCore import QTimer, QUrl
-from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QKeySequence
+from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QTimer, QUrl
+from PySide6.QtGui import QAction, QCloseEvent, QCursor, QDesktopServices, QKeySequence, QMouseEvent
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -37,8 +37,21 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(self.tr("OpenCut PySide"))
         self.resize(1440, 860)
 
+        # Sprint 16-B: frameless window with custom title-bar chrome.
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+        self.setMouseTracking(True)
+        self._resize_cursor_active = False
+        application = QApplication.instance()
+        if application is not None:
+            application.installEventFilter(self)
+
         self._top_bar = TopBar(self)
         self._top_bar.export_requested.connect(self._on_export_project_triggered)
+        self._top_bar.minimize_requested.connect(self.showMinimized)
+        self._top_bar.maximize_toggle_requested.connect(self._toggle_maximized)
+        self._top_bar.maximize_toggle_via_doubleclick_requested.connect(self._toggle_maximized)
+        self._top_bar.close_requested.connect(self.close)
+        self._top_bar.drag_started.connect(self._start_system_move)
         self._app_shell = AppShell(app_controller=self._app_controller)
         central = QWidget(self)
         central_layout = QVBoxLayout(central)
@@ -658,6 +671,110 @@ class MainWindow(QMainWindow):
             return
 
         event.accept()
+
+    # Sprint 16-B: frameless window helpers ---------------------------------
+
+    _RESIZE_BORDER = 4
+
+    def _toggle_maximized(self) -> None:
+        if self.isMaximized():
+            self.showNormal()
+        else:
+            self.showMaximized()
+
+    def _start_system_move(self) -> None:
+        # Allow drag-to-unmaximize: the compositor handles restoring the
+        # window when the user drags a maximized title bar away from the edge.
+        handle = self.windowHandle()
+        if handle is not None:
+            handle.startSystemMove()
+
+    def _resize_edges_at(self, pos: QPoint) -> Qt.Edges | None:
+        if self.isMaximized() or self.isFullScreen():
+            return None
+        margin = self._RESIZE_BORDER
+        rect = self.rect()
+        edges = Qt.Edges()
+        if pos.x() <= margin:
+            edges |= Qt.Edge.LeftEdge
+        elif pos.x() >= rect.width() - margin:
+            edges |= Qt.Edge.RightEdge
+        if pos.y() <= margin:
+            edges |= Qt.Edge.TopEdge
+        elif pos.y() >= rect.height() - margin:
+            edges |= Qt.Edge.BottomEdge
+        return edges if edges else None
+
+    def _cursor_for_edges(self, edges: Qt.Edges) -> Qt.CursorShape:
+        left = bool(edges & Qt.Edge.LeftEdge)
+        right = bool(edges & Qt.Edge.RightEdge)
+        top = bool(edges & Qt.Edge.TopEdge)
+        bottom = bool(edges & Qt.Edge.BottomEdge)
+        if (top and left) or (bottom and right):
+            return Qt.CursorShape.SizeFDiagCursor
+        if (top and right) or (bottom and left):
+            return Qt.CursorShape.SizeBDiagCursor
+        if left or right:
+            return Qt.CursorShape.SizeHorCursor
+        return Qt.CursorShape.SizeVerCursor
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        # Child widgets cover the entire MainWindow, so direct mouse events
+        # on `self` never fire near the edges. We watch the QApplication for
+        # mouse activity and intercept presses/moves whose global position
+        # falls inside the resize border.
+        event_type = event.type()
+        if event_type == QEvent.Type.MouseMove and isinstance(event, QMouseEvent):
+            if not self.isActiveWindow():
+                # A modal dialog or external window grabbed focus while we
+                # were hovering the resize border — release the override
+                # cursor so the dialog isn't stuck with our resize shape.
+                self._clear_resize_cursor()
+                return super().eventFilter(watched, event)
+            local = self.mapFromGlobal(event.globalPosition().toPoint())
+            if not self.rect().contains(local) or (event.buttons() & Qt.MouseButton.LeftButton):
+                self._clear_resize_cursor()
+                return super().eventFilter(watched, event)
+            edges = self._resize_edges_at(local)
+            if edges is None:
+                self._clear_resize_cursor()
+            else:
+                shape = self._cursor_for_edges(edges)
+                if self._resize_cursor_active:
+                    QApplication.changeOverrideCursor(QCursor(shape))
+                else:
+                    QApplication.setOverrideCursor(QCursor(shape))
+                    self._resize_cursor_active = True
+        elif event_type == QEvent.Type.MouseButtonPress and isinstance(event, QMouseEvent):
+            if not self.isActiveWindow():
+                # Don't steal clicks from modal dialogs (Export, QMessageBox,
+                # QFileDialog) — they get focus while MainWindow is inactive.
+                return super().eventFilter(watched, event)
+            if event.button() != Qt.MouseButton.LeftButton:
+                return super().eventFilter(watched, event)
+            local = self.mapFromGlobal(event.globalPosition().toPoint())
+            if not self.rect().contains(local):
+                return super().eventFilter(watched, event)
+            edges = self._resize_edges_at(local)
+            if edges is None:
+                return super().eventFilter(watched, event)
+            handle = self.windowHandle()
+            if handle is None:
+                return super().eventFilter(watched, event)
+            self._clear_resize_cursor()
+            handle.startSystemResize(edges)
+            return True
+        return super().eventFilter(watched, event)
+
+    def _clear_resize_cursor(self) -> None:
+        if self._resize_cursor_active:
+            QApplication.restoreOverrideCursor()
+            self._resize_cursor_active = False
+
+    def changeEvent(self, event: QEvent) -> None:
+        if event.type() == QEvent.Type.WindowStateChange and self._top_bar is not None:
+            self._top_bar.set_maximized_state(self.isMaximized())
+        super().changeEvent(event)
 
     def _confirm_discard_unsaved_changes(self, action_description: str) -> bool:
         if not self._app_controller.has_unsaved_changes():

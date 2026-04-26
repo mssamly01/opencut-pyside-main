@@ -1,14 +1,20 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QMenu, QPushButton, QToolButton, QWidget
+from app.ui.shared.icons import build_icon
+from PySide6.QtCore import QPoint, QSize, Qt, Signal
+from PySide6.QtGui import QAction, QMouseEvent
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QMenu, QPushButton, QToolButton, QWidget
 
 
 class TopBar(QWidget):
     """Custom top bar with menu button, project name, and export button."""
 
     export_requested = Signal()
+    minimize_requested = Signal()
+    maximize_toggle_requested = Signal()
+    close_requested = Signal()
+    drag_started = Signal()
+    maximize_toggle_via_doubleclick_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -16,7 +22,7 @@ class TopBar(QWidget):
         self.setFixedHeight(32)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 0, 8, 0)
+        layout.setContentsMargins(8, 0, 4, 0)
         layout.setSpacing(8)
 
         self._menu_button = QToolButton(self)
@@ -43,6 +49,67 @@ class TopBar(QWidget):
         self._export_button.clicked.connect(self.export_requested.emit)
         layout.addWidget(self._export_button)
 
+        # Sprint 16-B: window chrome controls (min / max-restore / close).
+        self._minimize_button = self._build_chrome_button(
+            "window-min",
+            self.tr("Thu nhỏ"),
+            self.minimize_requested,
+            object_name="top_minimize_button",
+        )
+        layout.addWidget(self._minimize_button)
+
+        self._maximize_button = self._build_chrome_button(
+            "window-max",
+            self.tr("Phóng to"),
+            self.maximize_toggle_requested,
+            object_name="top_maximize_button",
+        )
+        layout.addWidget(self._maximize_button)
+
+        self._close_button = self._build_chrome_button(
+            "window-close",
+            self.tr("Đóng"),
+            self.close_requested,
+            object_name="top_close_button",
+        )
+        self._close_button.setProperty("chromeRole", "close")
+        layout.addWidget(self._close_button)
+
+        # Sprint 16-B: drag-to-move tracks press position so we can defer the
+        # actual startSystemMove() until the user crosses the drag threshold.
+        # Calling startSystemMove() in mousePressEvent grabs the pointer and
+        # would prevent mouseDoubleClickEvent from ever firing.
+        self._drag_press_global: QPoint | None = None
+        self._drag_active = False
+
+    def _build_chrome_button(
+        self,
+        icon_name: str,
+        tooltip: str,
+        signal: Signal,
+        *,
+        object_name: str,
+    ) -> QToolButton:
+        button = QToolButton(self)
+        button.setObjectName(object_name)
+        button.setIcon(build_icon(icon_name))
+        button.setIconSize(QSize(14, 14))
+        button.setFixedSize(28, 24)
+        button.setToolTip(tooltip)
+        button.setAutoRaise(True)
+        button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        button.clicked.connect(signal.emit)
+        return button
+
+    def set_maximized_state(self, maximized: bool) -> None:
+        """Swap the max/restore icon to mirror the window state."""
+        if maximized:
+            self._maximize_button.setIcon(build_icon("window-restore"))
+            self._maximize_button.setToolTip(self.tr("Khôi phục"))
+        else:
+            self._maximize_button.setIcon(build_icon("window-max"))
+            self._maximize_button.setToolTip(self.tr("Phóng to"))
+
     def clear_menu(self) -> None:
         self._menu.clear()
 
@@ -61,3 +128,55 @@ class TopBar(QWidget):
         self._menu.addSection(title)
         for action in actions:
             self._menu.addAction(action)
+
+    # Sprint 16-B: drag-to-move on empty regions of the title bar.
+    def _is_drag_region(self, event: QMouseEvent) -> bool:
+        child = self.childAt(event.position().toPoint())
+        if child is None:
+            return True
+        # Allow drag when the press lands on the project-name label or the
+        # bar background; buttons (menu, export, chrome) keep their own clicks.
+        return child is self._project_name
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton and self._is_drag_region(event):
+            # Record the press position; defer startSystemMove() to
+            # mouseMoveEvent so a quick press-release-press double-click
+            # still reaches mouseDoubleClickEvent.
+            self._drag_press_global = event.globalPosition().toPoint()
+            self._drag_active = False
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if (
+            self._drag_press_global is not None
+            and not self._drag_active
+            and event.buttons() & Qt.MouseButton.LeftButton
+        ):
+            current = event.globalPosition().toPoint()
+            delta = current - self._drag_press_global
+            if max(abs(delta.x()), abs(delta.y())) >= QApplication.startDragDistance():
+                self._drag_active = True
+                self.drag_started.emit()
+                event.accept()
+                return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_press_global = None
+            self._drag_active = False
+        super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton and self._is_drag_region(event):
+            # A double-click resets any pending drag state recorded by the
+            # first press so a subsequent move doesn't kick off a system move.
+            self._drag_press_global = None
+            self._drag_active = False
+            self.maximize_toggle_via_doubleclick_requested.emit()
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
