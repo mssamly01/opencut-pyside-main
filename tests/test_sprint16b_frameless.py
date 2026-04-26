@@ -72,6 +72,8 @@ def test_event_filter_press_at_edge_triggers_system_resize() -> None:
     try:
         window.resize(800, 600)
         window.show()
+        window.activateWindow()
+        window.isActiveWindow = MagicMock(return_value=True)  # type: ignore[method-assign]
         # The eventFilter relies on the live window handle to delegate the
         # resize to the compositor; we stub it out and verify it gets called
         # with the correct edges when the press lands inside the 4 px border.
@@ -102,6 +104,8 @@ def test_event_filter_press_at_center_is_ignored() -> None:
     try:
         window.resize(800, 600)
         window.show()
+        window.activateWindow()
+        window.isActiveWindow = MagicMock(return_value=True)  # type: ignore[method-assign]
         fake_handle = MagicMock()
         window.windowHandle = MagicMock(return_value=fake_handle)  # type: ignore[method-assign]
         centre_global = window.mapToGlobal(QPoint(400, 300))
@@ -109,6 +113,33 @@ def test_event_filter_press_at_center_is_ignored() -> None:
             QEvent.Type.MouseButtonPress,
             QPointF(400.0, 300.0),
             QPointF(centre_global),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        consumed = window.eventFilter(window, press)
+        assert consumed is False
+        fake_handle.startSystemResize.assert_not_called()
+    finally:
+        window.close()
+
+
+def test_event_filter_does_not_steal_clicks_when_window_inactive() -> None:
+    create_application(["pytest"])
+    window = build_main_window()
+    try:
+        window.resize(800, 600)
+        window.show()
+        # Simulate a modal dialog being on top: MainWindow is no longer the
+        # active window, so the resize-edge press should NOT be consumed.
+        window.isActiveWindow = MagicMock(return_value=False)  # type: ignore[method-assign]
+        fake_handle = MagicMock()
+        window.windowHandle = MagicMock(return_value=fake_handle)  # type: ignore[method-assign]
+        global_pt = window.mapToGlobal(QPoint(2, 2))
+        press = QMouseEvent(
+            QEvent.Type.MouseButtonPress,
+            QPointF(2.0, 2.0),
+            QPointF(global_pt),
             Qt.MouseButton.LeftButton,
             Qt.MouseButton.LeftButton,
             Qt.KeyboardModifier.NoModifier,

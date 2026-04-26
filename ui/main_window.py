@@ -683,8 +683,10 @@ class MainWindow(QMainWindow):
             self.showMaximized()
 
     def _start_system_move(self) -> None:
+        # Allow drag-to-unmaximize: the compositor handles restoring the
+        # window when the user drags a maximized title bar away from the edge.
         handle = self.windowHandle()
-        if handle is not None and not self.isMaximized():
+        if handle is not None:
             handle.startSystemMove()
 
     def _resize_edges_at(self, pos: QPoint) -> Qt.Edges | None:
@@ -740,6 +742,10 @@ class MainWindow(QMainWindow):
                     QApplication.setOverrideCursor(QCursor(shape))
                     self._resize_cursor_active = True
         elif event_type == QEvent.Type.MouseButtonPress and isinstance(event, QMouseEvent):
+            if not self.isActiveWindow():
+                # Don't steal clicks from modal dialogs (Export, QMessageBox,
+                # QFileDialog) — they get focus while MainWindow is inactive.
+                return super().eventFilter(watched, event)
             if event.button() != Qt.MouseButton.LeftButton:
                 return super().eventFilter(watched, event)
             local = self.mapFromGlobal(event.globalPosition().toPoint())
