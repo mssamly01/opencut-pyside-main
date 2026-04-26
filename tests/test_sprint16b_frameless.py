@@ -124,6 +124,120 @@ def test_event_filter_press_at_center_is_ignored() -> None:
         window.close()
 
 
+def test_top_bar_press_alone_does_not_emit_drag_started() -> None:
+    create_application(["pytest"])
+    window = build_main_window()
+    try:
+        window.show()
+        top_bar = window._top_bar
+        assert top_bar is not None
+        emitted: list[None] = []
+        top_bar.drag_started.connect(lambda: emitted.append(None))
+        global_pt = top_bar.mapToGlobal(QPoint(top_bar.width() // 2, 16))
+        press = QMouseEvent(
+            QEvent.Type.MouseButtonPress,
+            QPointF(top_bar.width() / 2, 16.0),
+            QPointF(global_pt),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        top_bar.mousePressEvent(press)
+        assert emitted == []
+    finally:
+        window.close()
+
+
+def test_top_bar_drag_emits_only_after_threshold() -> None:
+    from PySide6.QtWidgets import QApplication as _QApplication
+
+    create_application(["pytest"])
+    window = build_main_window()
+    try:
+        window.show()
+        top_bar = window._top_bar
+        assert top_bar is not None
+        emitted: list[None] = []
+        top_bar.drag_started.connect(lambda: emitted.append(None))
+        start_local = QPointF(top_bar.width() / 2, 16.0)
+        start_global = top_bar.mapToGlobal(QPoint(int(start_local.x()), int(start_local.y())))
+        press = QMouseEvent(
+            QEvent.Type.MouseButtonPress,
+            start_local,
+            QPointF(start_global),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        top_bar.mousePressEvent(press)
+        # Move 1 px → still below threshold, no drag yet.
+        small_move = QMouseEvent(
+            QEvent.Type.MouseMove,
+            start_local + QPointF(1.0, 0.0),
+            QPointF(start_global + QPoint(1, 0)),
+            Qt.MouseButton.NoButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        top_bar.mouseMoveEvent(small_move)
+        assert emitted == []
+        # Move past startDragDistance → drag fires once.
+        threshold = _QApplication.startDragDistance() + 2
+        big_move = QMouseEvent(
+            QEvent.Type.MouseMove,
+            start_local + QPointF(float(threshold), 0.0),
+            QPointF(start_global + QPoint(threshold, 0)),
+            Qt.MouseButton.NoButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        top_bar.mouseMoveEvent(big_move)
+        assert emitted == [None]
+        # Subsequent moves don't re-emit while the drag is active.
+        top_bar.mouseMoveEvent(big_move)
+        assert emitted == [None]
+    finally:
+        window.close()
+
+
+def test_top_bar_double_click_emits_maximize_and_clears_drag_state() -> None:
+    create_application(["pytest"])
+    window = build_main_window()
+    try:
+        window.show()
+        top_bar = window._top_bar
+        assert top_bar is not None
+        max_emitted: list[None] = []
+        drag_emitted: list[None] = []
+        top_bar.maximize_toggle_via_doubleclick_requested.connect(lambda: max_emitted.append(None))
+        top_bar.drag_started.connect(lambda: drag_emitted.append(None))
+        local = QPointF(top_bar.width() / 2, 16.0)
+        global_pt = top_bar.mapToGlobal(QPoint(int(local.x()), int(local.y())))
+        press = QMouseEvent(
+            QEvent.Type.MouseButtonPress,
+            local,
+            QPointF(global_pt),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        top_bar.mousePressEvent(press)
+        dbl = QMouseEvent(
+            QEvent.Type.MouseButtonDblClick,
+            local,
+            QPointF(global_pt),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        top_bar.mouseDoubleClickEvent(dbl)
+        assert max_emitted == [None]
+        assert drag_emitted == []
+        assert top_bar._drag_press_global is None
+    finally:
+        window.close()
+
+
 def test_event_filter_does_not_steal_clicks_when_window_inactive() -> None:
     create_application(["pytest"])
     window = build_main_window()

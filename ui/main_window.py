@@ -726,6 +726,10 @@ class MainWindow(QMainWindow):
         event_type = event.type()
         if event_type == QEvent.Type.MouseMove and isinstance(event, QMouseEvent):
             if not self.isActiveWindow():
+                # A modal dialog or external window grabbed focus while we
+                # were hovering the resize border — release the override
+                # cursor so the dialog isn't stuck with our resize shape.
+                self._clear_resize_cursor()
                 return super().eventFilter(watched, event)
             local = self.mapFromGlobal(event.globalPosition().toPoint())
             if not self.rect().contains(local) or (event.buttons() & Qt.MouseButton.LeftButton):

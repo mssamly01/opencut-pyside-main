@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from app.ui.shared.icons import build_icon
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import QPoint, QSize, Qt, Signal
 from PySide6.QtGui import QAction, QMouseEvent
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QMenu, QPushButton, QToolButton, QWidget
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QMenu, QPushButton, QToolButton, QWidget
 
 
 class TopBar(QWidget):
@@ -75,6 +75,13 @@ class TopBar(QWidget):
         self._close_button.setProperty("chromeRole", "close")
         layout.addWidget(self._close_button)
 
+        # Sprint 16-B: drag-to-move tracks press position so we can defer the
+        # actual startSystemMove() until the user crosses the drag threshold.
+        # Calling startSystemMove() in mousePressEvent grabs the pointer and
+        # would prevent mouseDoubleClickEvent from ever firing.
+        self._drag_press_global: QPoint | None = None
+        self._drag_active = False
+
     def _build_chrome_button(
         self,
         icon_name: str,
@@ -133,13 +140,42 @@ class TopBar(QWidget):
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton and self._is_drag_region(event):
-            self.drag_started.emit()
+            # Record the press position; defer startSystemMove() to
+            # mouseMoveEvent so a quick press-release-press double-click
+            # still reaches mouseDoubleClickEvent.
+            self._drag_press_global = event.globalPosition().toPoint()
+            self._drag_active = False
             event.accept()
             return
         super().mousePressEvent(event)
 
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if (
+            self._drag_press_global is not None
+            and not self._drag_active
+            and event.buttons() & Qt.MouseButton.LeftButton
+        ):
+            current = event.globalPosition().toPoint()
+            delta = current - self._drag_press_global
+            if max(abs(delta.x()), abs(delta.y())) >= QApplication.startDragDistance():
+                self._drag_active = True
+                self.drag_started.emit()
+                event.accept()
+                return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_press_global = None
+            self._drag_active = False
+        super().mouseReleaseEvent(event)
+
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton and self._is_drag_region(event):
+            # A double-click resets any pending drag state recorded by the
+            # first press so a subsequent move doesn't kick off a system move.
+            self._drag_press_global = None
+            self._drag_active = False
             self.maximize_toggle_via_doubleclick_requested.emit()
             event.accept()
             return
