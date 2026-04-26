@@ -187,6 +187,39 @@ def test_effects_panel_slider_release_executes_undoable_command() -> None:
         panel.deleteLater()
 
 
+def test_effects_panel_slider_resyncs_after_undo() -> None:
+    """After undo/redo via timeline_controller, sliders must reflect the restored clip state."""
+    create_application(["pytest"])
+    context = build_app_context()
+    app_controller = context.app_controller
+    project = app_controller.project_controller.active_project()
+    assert project is not None
+    track = project.timeline.tracks[0]
+    clip = _make_video_clip(clip_id="c-resync", track_id=track.track_id, duration=2.0)
+    track.clips.append(clip)
+    app_controller.timeline_controller.timeline_changed.emit()
+    app_controller.selection_controller.select_clip(clip.clip_id)
+
+    panel = EffectsPanel(app_controller)
+    try:
+        slider = panel.slider_for("brightness")
+        # Apply a change via the public undo-aware path.
+        panel._on_slider_pressed("brightness")
+        slider.setValue(60)  # -> 0.6
+        panel._on_slider_released("brightness")
+        assert slider.value() == 60
+        # Undo through timeline_controller (fires timeline_edited).
+        app_controller.timeline_controller.undo()
+        assert abs(clip.brightness - 0.0) < 1e-6
+        assert slider.value() == 0
+        # Redo restores both clip and slider.
+        app_controller.timeline_controller.redo()
+        assert abs(clip.brightness - 0.6) < 1e-6
+        assert slider.value() == 60
+    finally:
+        panel.deleteLater()
+
+
 def test_effects_panel_keyboard_change_creates_undo_entry() -> None:
     """Slider changes outside of mouse drag (keyboard / programmatic) must be undoable."""
     create_application(["pytest"])

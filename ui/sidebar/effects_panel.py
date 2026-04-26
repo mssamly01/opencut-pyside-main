@@ -101,6 +101,9 @@ class EffectsPanel(QWidget):
 
         app_controller.selection_controller.selection_changed.connect(self._refresh_from_selection)
         app_controller.project_controller.project_changed.connect(self._refresh_from_selection)
+        # Re-sync sliders after undo/redo (or any other timeline edit) so the
+        # widget never drifts out of step with the clip's actual color state.
+        app_controller.timeline_controller.timeline_edited.connect(self._refresh_from_selection)
         self._refresh_from_selection()
 
     # --- slider plumbing ---------------------------------------------------
