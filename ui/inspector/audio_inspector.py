@@ -16,7 +16,7 @@ class AudioInspector(ClipInspectorBase):
         self._gain_db_spin.setSingleStep(0.5)
         self._gain_db_spin.setKeyboardTracking(False)
         self._gain_db_spin.editingFinished.connect(self._commit_specific_fields)
-        self._form.addRow("Gain (dB)", self._gain_db_spin)
+        self._form.addRow(self.tr("Âm lượng (dB)"), self._gain_db_spin)
 
         self._playback_speed_spin = QDoubleSpinBox(self)
         self._playback_speed_spin.setRange(0.1, 8.0)
@@ -24,7 +24,7 @@ class AudioInspector(ClipInspectorBase):
         self._playback_speed_spin.setSingleStep(0.1)
         self._playback_speed_spin.setKeyboardTracking(False)
         self._playback_speed_spin.editingFinished.connect(self._commit_specific_fields)
-        self._form.addRow("Playback Speed", self._playback_speed_spin)
+        self._form.addRow(self.tr("Tốc độ phát"), self._playback_speed_spin)
 
     def _refresh_specific_fields(self) -> None:
         clip = self._clip

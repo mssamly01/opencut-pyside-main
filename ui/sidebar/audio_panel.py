@@ -3,16 +3,32 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.controllers.project_controller import ProjectController
+from app.controllers.timeline_controller import TimelineController
 from app.domain.media_asset import MediaAsset
 from app.services.waveform_loader import WaveformLoader
 from app.ui.media_panel.media_item_widget import MediaListWidget
 from app.ui.sidebar.audio_row_widget import AudioRowWidget
-from PySide6.QtCore import QSize, Qt, QUrl
+from PySide6.QtCore import QCoreApplication, QSize, Qt, QUrl
 from PySide6.QtGui import QAction, QDesktopServices, QGuiApplication
-from PySide6.QtWidgets import QFileDialog, QLabel, QListWidgetItem, QMenu, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QFileDialog,
+    QLabel,
+    QListWidgetItem,
+    QMenu,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
-_AUDIO_FILTER = "Audio Files (*.mp3 *.wav *.m4a *.aac *.flac *.ogg *.opus);;All Files (*.*)"
 _AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus"}
+
+
+def _audio_file_filter() -> str:
+    return QCoreApplication.translate(
+        "AudioPanel",
+        "Tệp âm thanh (*.mp3 *.wav *.m4a *.aac *.flac *.ogg *.opus);;Tất cả tệp (*.*)",
+    )
 
 
 class AudioPanel(QWidget):
@@ -22,21 +38,23 @@ class AudioPanel(QWidget):
         self,
         project_controller: ProjectController,
         waveform_loader: WaveformLoader | None = None,
+        timeline_controller: TimelineController | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._project_controller = project_controller
         self._waveform_loader = waveform_loader
+        self._timeline_controller = timeline_controller
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
 
-        header = QLabel("Audio", self)
+        header = QLabel(self.tr("Âm thanh"), self)
         header.setStyleSheet("font-weight: 600; color: #e6edf3; padding: 2px 0;")
         layout.addWidget(header)
 
-        self.import_button = QPushButton("Import Audio...", self)
+        self.import_button = QPushButton(self.tr("Nhập âm thanh..."), self)
         self.import_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.import_button.clicked.connect(self._on_import_clicked)
         layout.addWidget(self.import_button)
@@ -49,10 +67,16 @@ class AudioPanel(QWidget):
         layout.addWidget(self.media_list, 1)
 
         self._project_controller.project_changed.connect(self._refresh_media_items)
+        self._project_controller.media_assets_changed.connect(self._refresh_media_items)
         self._refresh_media_items()
 
     def _on_import_clicked(self) -> None:
-        selected_paths, _ = QFileDialog.getOpenFileNames(self, "Import Audio Files", "", _AUDIO_FILTER)
+        selected_paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            self.tr("Nhập tệp âm thanh"),
+            "",
+            _audio_file_filter(),
+        )
         if not selected_paths:
             return
         self._project_controller.import_media_files(selected_paths)
@@ -69,7 +93,7 @@ class AudioPanel(QWidget):
                 continue
             item = QListWidgetItem(self.media_list)
             item.setData(Qt.ItemDataRole.UserRole, media_asset.media_id)
-            item.setToolTip(media_asset.file_path)
+            item.setToolTip(AudioRowWidget.format_tooltip(media_asset))
             item.setSizeHint(QSize(0, 32))
             row_widget = AudioRowWidget(
                 media_asset=media_asset,
@@ -83,7 +107,7 @@ class AudioPanel(QWidget):
         if has_items:
             return
 
-        placeholder = QListWidgetItem("No audio imported", self.media_list)
+        placeholder = QListWidgetItem(self.tr("Chưa nhập âm thanh"), self.media_list)
         placeholder.setFlags(Qt.ItemFlag.NoItemFlags)
         placeholder.setForeground(Qt.GlobalColor.gray)
 
@@ -107,16 +131,24 @@ class AudioPanel(QWidget):
             return
 
         menu = QMenu(self.media_list)
-        reveal_action = QAction("Reveal in Folder", menu)
-        copy_path_action = QAction("Copy File Path", menu)
+        reveal_action = QAction(self.tr("Hiện trong thư mục"), menu)
+        copy_path_action = QAction(self.tr("Sao chép đường dẫn tệp"), menu)
         menu.addAction(reveal_action)
         menu.addAction(copy_path_action)
+
+        remove_action: QAction | None = None
+        if self._timeline_controller is not None:
+            menu.addSeparator()
+            remove_action = QAction(self.tr("Xóa khỏi project"), menu)
+            menu.addAction(remove_action)
 
         triggered = menu.exec(self.media_list.viewport().mapToGlobal(position))
         if triggered == reveal_action:
             self._reveal_in_folder(media_asset.file_path)
         elif triggered == copy_path_action:
             self._copy_file_path(media_asset.file_path)
+        elif remove_action is not None and triggered == remove_action:
+            self._remove_media_asset(media_asset)
 
     def _find_media_asset(self, media_id: str) -> MediaAsset | None:
         project = self._project_controller.active_project()
@@ -149,3 +181,27 @@ class AudioPanel(QWidget):
         clipboard = QGuiApplication.clipboard()
         if clipboard is not None:
             clipboard.setText(file_path)
+
+    def _remove_media_asset(self, media_asset: MediaAsset) -> None:
+        timeline_controller = self._timeline_controller
+        if timeline_controller is None:
+            return
+        clip_count = len(timeline_controller.clips_using_media(media_asset.media_id))
+        display_name = media_asset.name or Path(media_asset.file_path).name
+        if clip_count > 0:
+            message = self.tr(
+                'Có {count} clip đang dùng "{name}". Xóa asset sẽ xóa luôn các clip này '
+                "(có thể Undo). Tiếp tục?"
+            ).format(count=clip_count, name=display_name)
+        else:
+            message = self.tr('Xóa "{name}" khỏi project?').format(name=display_name)
+        reply = QMessageBox.question(
+            self,
+            self.tr("Xóa khỏi project"),
+            message,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        timeline_controller.remove_media(media_asset.media_id)

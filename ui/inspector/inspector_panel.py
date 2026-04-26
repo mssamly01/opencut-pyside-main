@@ -25,12 +25,12 @@ class InspectorPanel(QWidget):
         toggle_layout.setContentsMargins(8, 6, 8, 4)
         toggle_layout.setSpacing(4)
 
-        self._details_button = QPushButton("Chi tiết", toggle_row)
+        self._details_button = QPushButton(self.tr("Chi tiết"), toggle_row)
         self._details_button.setObjectName("inspector_toggle_button")
         self._details_button.setCheckable(True)
         self._details_button.setChecked(True)
 
-        self._edit_button = QPushButton("Chỉnh sửa", toggle_row)
+        self._edit_button = QPushButton(self.tr("Chỉnh sửa"), toggle_row)
         self._edit_button.setObjectName("inspector_toggle_button")
         self._edit_button.setCheckable(True)
 

@@ -25,11 +25,17 @@ class _StubFFmpegGateway(FFmpegGateway):
         start_time_seconds: float,
         fps: float,
         frame_count: int,
+        extra_video_filters: list[str] | None = None,
     ) -> list[bytes]:
         self.sequence_calls.append((file_path, start_time_seconds, fps, frame_count))
         return list(self.sequence_payload)
 
-    def extract_frame_png(self, file_path: str, time_seconds: float) -> bytes | None:  # type: ignore[override]
+    def extract_frame_png(  # type: ignore[override]
+        self,
+        file_path: str,
+        time_seconds: float,
+        extra_video_filters: list[str] | None = None,
+    ) -> bytes | None:
         self.single_calls.append((file_path, time_seconds))
         return self.single_payload
 

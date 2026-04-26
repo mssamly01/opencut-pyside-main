@@ -6,7 +6,7 @@ from pathlib import Path
 
 from app.domain.media_asset import MediaAsset
 from app.services.waveform_loader import WaveformLoader
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QCoreApplication, QSize, Qt
 from PySide6.QtGui import QColor, QPainter, QPaintEvent, QPen
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
 
@@ -103,3 +103,44 @@ class AudioRowWidget(QWidget):
         if media_id != self._media_id:
             return
         self._waveform_view.set_peaks(peaks)
+
+    @staticmethod
+    def format_tooltip(media_asset: MediaAsset) -> str:
+        translate = QCoreApplication.translate
+        lines = [media_asset.name or Path(media_asset.file_path).name]
+        duration = media_asset.duration_seconds
+        if duration is not None and duration > 0:
+            minutes = int(duration // 60)
+            seconds = duration - minutes * 60
+            lines.append(
+                translate("AudioRowWidget", "Thời lượng: {minutes:d}:{seconds:06.3f}").format(
+                    minutes=minutes, seconds=seconds
+                )
+            )
+        size = media_asset.file_size_bytes
+        if size is not None and size > 0:
+            lines.append(
+                translate("AudioRowWidget", "Kích thước: {size}").format(
+                    size=AudioRowWidget._format_size(int(size))
+                )
+            )
+        codec = media_asset.audio_codec
+        if codec:
+            lines.append(
+                translate("AudioRowWidget", "Codec: {codec}").format(codec=codec)
+            )
+        sample_rate = media_asset.sample_rate
+        if sample_rate:
+            lines.append(
+                translate("AudioRowWidget", "Tần số mẫu: {rate} Hz").format(rate=sample_rate)
+            )
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_size(num_bytes: int) -> str:
+        size = float(num_bytes)
+        for unit in ("B", "KB", "MB", "GB"):
+            if size < 1024.0 or unit == "GB":
+                return f"{size:.1f} {unit}" if unit != "B" else f"{int(size)} {unit}"
+            size /= 1024.0
+        return f"{size:.1f} GB"

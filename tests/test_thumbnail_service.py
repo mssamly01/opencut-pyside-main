@@ -18,7 +18,12 @@ class _StubFFmpegGateway(FFmpegGateway):
         self._payload = payload
         self.calls: list[tuple[str, float]] = []
 
-    def extract_frame_png(self, file_path: str, time_seconds: float) -> bytes | None:  # type: ignore[override]
+    def extract_frame_png(  # type: ignore[override]
+        self,
+        file_path: str,
+        time_seconds: float,
+        extra_video_filters: list[str] | None = None,
+    ) -> bytes | None:
         self.calls.append((file_path, time_seconds))
         return self._payload
 
@@ -98,7 +103,12 @@ def test_image_thumbnail_reads_source_without_ffmpeg(tmp_path: Path) -> None:
     project = _build_project(media_asset, clip)
 
     class _NeverCalledGateway(_StubFFmpegGateway):
-        def extract_frame_png(self, file_path: str, time_seconds: float) -> bytes | None:  # type: ignore[override]
+        def extract_frame_png(  # type: ignore[override]
+            self,
+            file_path: str,
+            time_seconds: float,
+            extra_video_filters: list[str] | None = None,
+        ) -> bytes | None:
             raise AssertionError("ffmpeg should not be called for image thumbnails")
 
     service = ThumbnailService(ffmpeg_gateway=_NeverCalledGateway(), cache_root=tmp_path / "cache")

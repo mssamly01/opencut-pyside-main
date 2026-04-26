@@ -36,7 +36,7 @@ class EditorInspectorPage(QWidget):
         self._stack = QStackedWidget(self)
         layout.addWidget(self._stack)
 
-        self._empty_label = QLabel("Không có lựa chọn để chỉnh sửa.", self)
+        self._empty_label = QLabel(self.tr("Không có lựa chọn để chỉnh sửa."), self)
         self._stack.insertWidget(self._PAGE_EMPTY, self._empty_label)
 
         timeline_controller = app_controller.timeline_controller

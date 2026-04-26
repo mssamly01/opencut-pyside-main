@@ -62,7 +62,7 @@ class PlaybackPlayButton(QPushButton):
     def _on_state_changed(self, state: str) -> None:
         if state == "playing":
             self.setIcon(build_icon("pause", color="#ffffff"))
-            self.setToolTip("Pause")
+            self.setToolTip(self.tr("Tạm dừng"))
         else:
             self.setIcon(build_icon("play", color="#ffffff"))
-            self.setToolTip("Play")
+            self.setToolTip(self.tr("Phát"))

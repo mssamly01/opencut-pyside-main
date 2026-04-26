@@ -516,13 +516,13 @@ class PreviewWidget(QWidget):
         zoom_button = QToolButton(right_group)
         zoom_button.setIcon(build_icon("zoom-in"))
         zoom_button.setIconSize(QSize(20, 20))
-        zoom_button.setToolTip("Thu phong")
+        zoom_button.setToolTip(self.tr("Thu phóng"))
         zoom_button.setAutoRaise(True)
         zoom_button.setFixedSize(control_height, control_height)
         zoom_button.setStyleSheet(icon_tool_style)
         right_group_layout.addWidget(zoom_button)
 
-        self._aspect_menu_button = QPushButton("Ty le khung hinh", right_group)
+        self._aspect_menu_button = QPushButton(self.tr("Tỉ lệ khung hình"), right_group)
         self._aspect_menu_button.setFlat(False)
         self._aspect_menu_button.setFixedHeight(control_height)
         self._aspect_menu_button.setStyleSheet(
@@ -530,7 +530,7 @@ class PreviewWidget(QWidget):
             "QPushButton:hover { background: #2a3443; border-color: #445069; }"
             "QPushButton::menu-indicator { image: none; width: 0px; }"
         )
-        self._aspect_menu_button.setToolTip("Doi ty le khung hinh du an")
+        self._aspect_menu_button.setToolTip(self.tr("Đổi tỉ lệ khung hình dự án"))
         aspect_menu = QMenu(self._aspect_menu_button)
         for label, width, height in _ASPECT_PRESETS:
             action = aspect_menu.addAction(label)
@@ -542,7 +542,7 @@ class PreviewWidget(QWidget):
         fullscreen_button = QToolButton(right_group)
         fullscreen_button.setIcon(build_icon("fit"))
         fullscreen_button.setIconSize(QSize(20, 20))
-        fullscreen_button.setToolTip("Toan man hinh")
+        fullscreen_button.setToolTip(self.tr("Toàn màn hình"))
         fullscreen_button.setAutoRaise(True)
         fullscreen_button.setFixedSize(control_height, control_height)
         fullscreen_button.setStyleSheet(icon_tool_style)
@@ -579,7 +579,7 @@ class PreviewWidget(QWidget):
             return
         if self._project_controller.set_project_resolution(width, height):
             self._playback_controller.refresh_preview_frame()
-            self._aspect_menu_button.setText(f"Ty le {action.text()}")
+            self._aspect_menu_button.setText(self.tr("Tỉ lệ {ratio}").format(ratio=action.text()))
 
     def _refresh_total_duration(self) -> None:
         project = self._project_controller.active_project()

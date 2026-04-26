@@ -173,12 +173,18 @@ class TimelineView(QGraphicsView):
         timeline_start = max(0.0, (scene_pos.x() - self._timeline_scene.left_gutter) / self._timeline_scene.pixels_per_second)
         rounded_timeline_start = round(timeline_start, 3)
         target_track_id = self._timeline_scene.track_id_at_scene_y(scene_pos.y())
+        max_track_bottom = max(
+            (layout.bottom for layout in self._timeline_scene.track_layouts),
+            default=self._timeline_scene.ruler_height,
+        )
+        force_new_track = target_track_id is None and scene_pos.y() > max_track_bottom
 
         try:
             created_clip_id = self._timeline_controller.add_clip_from_media(
                 media_id=media_id,
                 timeline_start=rounded_timeline_start,
                 preferred_track_id=target_track_id,
+                force_new_track=force_new_track,
             )
         except ValueError:
             created_clip_id = None

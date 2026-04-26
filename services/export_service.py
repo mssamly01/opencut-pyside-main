@@ -20,7 +20,11 @@ from app.domain.media_asset import MediaAsset
 from app.domain.project import Project
 from app.dto.export_dto import ExportOptions, ExportResult
 from app.infrastructure.gpu_encoder import GpuEncoderProbe
-from app.services.keyframe_evaluator import clip_has_keyframes, ffmpeg_piecewise_expression
+from app.services.keyframe_evaluator import (
+    clip_has_keyframes,
+    ffmpeg_piecewise_expression,
+    resolve_clip_value_at,
+)
 
 ProgressCallback = Callable[[float, str], None]
 
@@ -529,6 +533,84 @@ class ExportService:
         return command
 
     @staticmethod
+    def _color_adjust_filters_for_clip(
+        clip: BaseClip,
+        time_in_clip: float | None = None,
+    ) -> list[str]:
+        """Color/LUT filter chain for a clip.
+
+        When ``time_in_clip`` is None we emit time-varying ``eq``/``hue``
+        expressions (export path: ffmpeg processes the whole clip).  When a
+        clip-relative time is supplied we evaluate any keyframes at that
+        instant and bake the result into constants (preview path: ffmpeg is
+        invoked once per frame).
+        """
+        if not isinstance(clip, (VideoClip, ImageClip)):
+            return []
+
+        defaults = {"brightness": 0.0, "contrast": 1.0, "saturation": 1.0, "hue": 0.0}
+        identity_tol = 1e-6
+
+        # Resolve each numeric channel either as an expression (export) or a
+        # baked-at-time constant (preview).
+        def _channel(name: str) -> tuple[str, float, bool]:
+            default = defaults[name]
+            static = float(getattr(clip, name, default))
+            if time_in_clip is None and clip_has_keyframes(clip, name):
+                kf_list = getattr(clip, f"{name}_keyframes")
+                expr = ffmpeg_piecewise_expression(
+                    kf_list,
+                    default_value=static,
+                    clip_duration=max(0.001, float(clip.duration)),
+                )
+                return expr, static, True
+            if time_in_clip is not None:
+                value = resolve_clip_value_at(clip, name, float(time_in_clip), default)
+            else:
+                value = static
+            return f"{value:.6f}", value, False
+
+        brightness_expr, brightness_value, brightness_animated = _channel("brightness")
+        contrast_expr, contrast_value, contrast_animated = _channel("contrast")
+        saturation_expr, saturation_value, saturation_animated = _channel("saturation")
+        hue_expr, hue_value, hue_animated = _channel("hue")
+
+        filters: list[str] = []
+        eq_parts: list[str] = []
+        eq_animated = False
+        if brightness_animated or abs(brightness_value) > identity_tol:
+            eq_parts.append(f"brightness={brightness_expr}")
+            eq_animated = eq_animated or brightness_animated
+        if contrast_animated or abs(contrast_value - 1.0) > identity_tol:
+            eq_parts.append(f"contrast={contrast_expr}")
+            eq_animated = eq_animated or contrast_animated
+        if saturation_animated or abs(saturation_value - 1.0) > identity_tol:
+            eq_parts.append(f"saturation={saturation_expr}")
+            eq_animated = eq_animated or saturation_animated
+        if eq_parts:
+            chain = "eq=" + ":".join(eq_parts)
+            if eq_animated:
+                chain += ":eval=frame"
+            filters.append(chain)
+        if hue_animated or abs(hue_value) > identity_tol:
+            chain = f"hue=h={hue_expr}"
+            if hue_animated:
+                chain += ":eval=frame"
+            filters.append(chain)
+
+        lut_path = str(getattr(clip, "lut_path", "") or "")
+        if lut_path:
+            from app.services.lut_service import resolve_lut_path
+
+            resolved = resolve_lut_path(lut_path)
+            if resolved is not None:
+                # ffmpeg requires single-quoted, backslash-escaped paths inside
+                # filter args; lut3d also expects forward slashes on Windows.
+                escaped = str(resolved).replace("\\", "/").replace("'", r"\'")
+                filters.append(f"lut3d=file='{escaped}':interp=tetrahedral")
+        return filters
+
+    @staticmethod
     def _transform_adjust_filters_for_clip(clip: BaseClip, project: Project) -> list[str]:
         if not isinstance(clip, (VideoClip, ImageClip)):
             return []
@@ -626,6 +708,12 @@ class ExportService:
                 f"pad={project.width}:{project.height}:(ow-iw)/2:(oh-ih)/2",
             ]
         )
+        # Color grading (eq/hue) must run BEFORE the opacity filter
+        # (colorchannelmixer=aa=...) emitted by _transform_adjust_filters_for_clip.
+        # ffmpeg's eq/hue filters do not support alpha pixel formats, so placing
+        # them after colorchannelmixer would force a yuva->yuv conversion and
+        # silently drop the per-clip opacity.
+        video_filters.extend(self._color_adjust_filters_for_clip(clip_source.clip))
         video_filters.extend(self._transform_adjust_filters_for_clip(clip_source.clip, project))
         video_filters.extend(
             [

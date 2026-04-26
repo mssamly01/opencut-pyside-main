@@ -4,7 +4,8 @@ import pytest
 from app.controllers.project_controller import ProjectController
 from app.controllers.selection_controller import SelectionController
 from app.controllers.timeline_controller import TimelineController
-from app.domain.project import build_demo_project
+from app.domain.media_asset import MediaAsset
+from app.domain.project import build_demo_project, build_empty_project
 
 
 def _build_timeline_controller() -> tuple[TimelineController, SelectionController]:
@@ -199,42 +200,142 @@ def test_ripple_delete_shifts_following_clips_in_same_track() -> None:
     assert second_clip.timeline_start == pytest.approx(4.1 - first_clip.duration)
 
 
-def test_main_track_layout_stays_text_main_media_order() -> None:
+def test_main_track_layout_keeps_main_video_track() -> None:
     timeline_controller, _selection_controller = _build_timeline_controller()
     project = timeline_controller.active_project()
     assert project is not None
 
-    assert project.timeline.tracks[0].track_type == "text"
-    assert project.timeline.tracks[1].name == "Main"
-    assert project.timeline.tracks[1].track_type == "video"
-    assert project.timeline.tracks[2].track_type in {"audio", "mixed"}
+    main_tracks = [track for track in project.timeline.tracks if track.is_main]
+    assert len(main_tracks) == 1
+    main_track = main_tracks[0]
+    assert main_track.track_type == "video"
+    assert main_track.name == "Main"
 
 
-def test_move_clip_overlap_auto_moves_to_other_track() -> None:
+def test_move_clip_on_main_ripples_following_clips() -> None:
     timeline_controller, _selection_controller = _build_timeline_controller()
     project = timeline_controller.active_project()
     assert project is not None
 
-    source_clip = project.timeline.tracks[1].clips[0]
-    original_track_id = source_clip.track_id
+    main_track = next(track for track in project.timeline.tracks if track.is_main)
+    first_clip = main_track.clips[0]
+    second_clip = main_track.clips[1]
     original_track_count = len(project.timeline.tracks)
+    original_second_start = second_clip.timeline_start
 
-    moved = timeline_controller.move_clip(source_clip.clip_id, 4.2)
+    moved = timeline_controller.move_clip(first_clip.clip_id, second_clip.timeline_start + 0.1)
     assert moved is True
-    assert source_clip.track_id != original_track_id
-    assert len(project.timeline.tracks) == original_track_count + 1
+    # The moving clip stays on main, and the second clip is pushed right by the moved clip's duration.
+    assert first_clip.track_id == main_track.track_id
+    assert len(project.timeline.tracks) == original_track_count
+    assert second_clip.timeline_start == pytest.approx(original_second_start + first_clip.duration)
+    assert first_clip.timeline_end <= second_clip.timeline_start + 1e-6
 
 
-def test_add_clip_from_media_overlap_creates_new_video_track() -> None:
+def test_add_clip_from_media_on_main_with_overlap_ripples_subsequent() -> None:
     timeline_controller, _selection_controller = _build_timeline_controller()
     project = timeline_controller.active_project()
     assert project is not None
 
-    main_track = project.timeline.tracks[1]
+    main_track = next(track for track in project.timeline.tracks if track.is_main)
+    second_clip_before = main_track.clips[1]
+    original_second_start = second_clip_before.timeline_start
     original_track_count = len(project.timeline.tracks)
-    created_clip_id = timeline_controller.add_clip_from_media("media_intro", timeline_start=1.0, preferred_track_id=main_track.track_id)
+
+    created_clip_id = timeline_controller.add_clip_from_media(
+        "media_intro",
+        timeline_start=1.0,
+        preferred_track_id=main_track.track_id,
+    )
     assert created_clip_id is not None
     created_clip = timeline_controller._find_clip_by_id(created_clip_id)
     assert created_clip is not None
-    assert created_clip.track_id != main_track.track_id
+    # New clip stays on main and existing later clip is rippled forward.
+    assert created_clip.track_id == main_track.track_id
+    assert len(project.timeline.tracks) == original_track_count
+    assert second_clip_before.timeline_start == pytest.approx(
+        original_second_start + created_clip.duration
+    )
+
+
+def test_delete_clip_on_main_auto_ripples() -> None:
+    timeline_controller, _selection_controller = _build_timeline_controller()
+    project = timeline_controller.active_project()
+    assert project is not None
+
+    main_track = next(track for track in project.timeline.tracks if track.is_main)
+    first_clip = main_track.clips[0]
+    second_clip = main_track.clips[1]
+    deleted_duration = first_clip.duration
+    original_second_start = second_clip.timeline_start
+
+    deleted = timeline_controller.delete_clip(first_clip.clip_id)
+    assert deleted is True
+    assert timeline_controller._find_clip_by_id(first_clip.clip_id) is None
+    assert second_clip.timeline_start == pytest.approx(original_second_start - deleted_duration)
+
+
+def test_add_audio_media_auto_creates_audio_track_when_dropped_on_main() -> None:
+    project_controller = ProjectController()
+    project = build_empty_project()
+    project.media_items.append(
+        MediaAsset(
+            media_id="media_audio_drop",
+            name="Audio Drop",
+            file_path="demo/audio_drop.wav",
+            media_type="audio",
+            duration_seconds=2.5,
+        )
+    )
+    project_controller.set_active_project(project)
+    selection_controller = SelectionController()
+    timeline_controller = TimelineController(
+        project_controller=project_controller,
+        selection_controller=selection_controller,
+    )
+
+    main_track = next(track for track in project.timeline.tracks if track.is_main)
+    created_clip_id = timeline_controller.add_clip_from_media(
+        "media_audio_drop",
+        timeline_start=0.5,
+        preferred_track_id=main_track.track_id,
+    )
+
+    assert created_clip_id is not None
+    created_clip = timeline_controller._find_clip_by_id(created_clip_id)
+    assert created_clip is not None
+    audio_tracks = [track for track in project.timeline.tracks if track.track_type == "audio"]
+    assert len(audio_tracks) == 1
+    assert created_clip.track_id == audio_tracks[0].track_id
+
+
+def test_add_clip_from_media_can_force_new_track_creation() -> None:
+    timeline_controller, _selection_controller = _build_timeline_controller()
+    project = timeline_controller.active_project()
+    assert project is not None
+
+    main_track = next(track for track in project.timeline.tracks if track.is_main)
+    original_track_count = len(project.timeline.tracks)
+    created_clip_id = timeline_controller.add_clip_from_media(
+        "media_intro",
+        timeline_start=10.0,
+        force_new_track=True,
+    )
+
+    assert created_clip_id is not None
+    created_clip = timeline_controller._find_clip_by_id(created_clip_id)
+    assert created_clip is not None
     assert len(project.timeline.tracks) == original_track_count + 1
+    created_track = next(track for track in project.timeline.tracks if track.track_id == created_clip.track_id)
+    assert created_track.track_type == "video"
+    assert created_track.is_main is False
+    assert created_track.track_id != main_track.track_id
+
+
+def test_build_empty_project_has_only_main_track() -> None:
+    project = build_empty_project()
+    assert len(project.timeline.tracks) == 1
+    track = project.timeline.tracks[0]
+    assert track.is_main is True
+    assert track.track_type == "video"
+    assert track.clips == []

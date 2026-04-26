@@ -12,6 +12,8 @@ from app.domain.media_asset import MediaAsset
 from app.domain.project import Project
 from app.infrastructure.ffmpeg_gateway import FFmpegGateway
 from app.infrastructure.video_decoder import VideoDecoder
+from app.services.export_service import ExportService
+from app.services.keyframe_evaluator import clip_has_keyframes
 
 
 @dataclass(slots=True, frozen=True)
@@ -69,32 +71,57 @@ class PlaybackService:
         safe_fps = self._safe_fps(project.fps)
         frame_index = self._frame_index(source_time, safe_fps)
         normalized_media_path = str(media_path)
-        cached_frame = self._video_decoder.get_frame(normalized_media_path, safe_fps, frame_index)
+        # Per-clip color/LUT filter chain.  Re-uses the export-time builder
+        # but passes ``time_in_clip`` so any color keyframes are evaluated and
+        # baked at the current playhead — the per-frame ffmpeg invocation
+        # gets a constant chain, and the cache key naturally varies with t.
+        time_in_clip = max(0.0, float(time_seconds) - float(active_clip.timeline_start))
+        extra_filters = ExportService._color_adjust_filters_for_clip(
+            active_clip, time_in_clip=time_in_clip
+        )
+        # When the filter chain depends on time (any color keyframes), prefetched
+        # neighbour frames would be baked with the *current* time's value and
+        # never match future cache lookups — wasted work that also evicts useful
+        # entries from the LRU.  Decode just the requested frame instead.
+        prefetch_enabled = not self._has_animated_color(active_clip)
+        cached_frame = self._video_decoder.get_frame(
+            normalized_media_path, safe_fps, frame_index, extra_video_filters=extra_filters
+        )
         if cached_frame is not None:
+            if prefetch_enabled:
+                self._prefetch_window(
+                    media_path=normalized_media_path,
+                    fps=safe_fps,
+                    frame_index=frame_index + 1,
+                    media_asset=media_asset,
+                    extra_video_filters=extra_filters,
+                )
+            return PreviewFrameResult(frame_bytes=cached_frame, message=media_asset.name)
+
+        if prefetch_enabled:
             self._prefetch_window(
                 media_path=normalized_media_path,
                 fps=safe_fps,
-                frame_index=frame_index + 1,
+                frame_index=frame_index,
                 media_asset=media_asset,
+                extra_video_filters=extra_filters,
             )
-            return PreviewFrameResult(frame_bytes=cached_frame, message=media_asset.name)
-
-        self._prefetch_window(
-            media_path=normalized_media_path,
-            fps=safe_fps,
-            frame_index=frame_index,
-            media_asset=media_asset,
-        )
-        cached_frame = self._video_decoder.get_frame(normalized_media_path, safe_fps, frame_index)
-        if cached_frame is not None:
-            return PreviewFrameResult(frame_bytes=cached_frame, message=media_asset.name)
+            cached_frame = self._video_decoder.get_frame(
+                normalized_media_path, safe_fps, frame_index, extra_video_filters=extra_filters
+            )
+            if cached_frame is not None:
+                return PreviewFrameResult(frame_bytes=cached_frame, message=media_asset.name)
 
         quantized_source_time = self._time_from_frame_index(frame_index, safe_fps)
-        frame_bytes = self._ffmpeg_gateway.extract_frame_png(normalized_media_path, quantized_source_time)
+        frame_bytes = self._ffmpeg_gateway.extract_frame_png(
+            normalized_media_path, quantized_source_time, extra_video_filters=extra_filters
+        )
         if frame_bytes is None:
             return PreviewFrameResult(frame_bytes=None, message="Unable to decode video frame")
 
-        self._video_decoder.put_frame(normalized_media_path, safe_fps, frame_index, frame_bytes)
+        self._video_decoder.put_frame(
+            normalized_media_path, safe_fps, frame_index, frame_bytes, extra_video_filters=extra_filters
+        )
         return PreviewFrameResult(frame_bytes=frame_bytes, message=media_asset.name)
 
     def _find_active_visual_clip(self, project: Project, time_seconds: float) -> BaseClip | None:
@@ -119,6 +146,19 @@ class PlaybackService:
             if media_asset.media_id == media_id:
                 return media_asset
         return None
+
+    @staticmethod
+    def _has_animated_color(clip: BaseClip) -> bool:
+        """True when any color channel has at least one keyframe.
+
+        Time-varying color filters poison the prefetch window — a single
+        ffmpeg call that bakes one playhead's value into many frames is
+        purely wasted work because the cache token includes the filter hash.
+        """
+        for name in ("brightness", "contrast", "saturation", "hue"):
+            if clip_has_keyframes(clip, name):
+                return True
+        return False
 
     @staticmethod
     def _clip_source_time(clip: BaseClip, time_seconds: float) -> float:
@@ -193,10 +233,19 @@ class PlaybackService:
         self._image_bytes_cache[normalized_path] = image_bytes
         return image_bytes
 
-    def _prefetch_window(self, media_path: str, fps: float, frame_index: int, media_asset: MediaAsset) -> None:
+    def _prefetch_window(
+        self,
+        media_path: str,
+        fps: float,
+        frame_index: int,
+        media_asset: MediaAsset,
+        extra_video_filters: list[str] | None = None,
+    ) -> None:
         frame_count = self._prefetch_frame_count_for_fps(fps)
         window_start = max(0, frame_index)
-        if self._video_decoder.has_prefetched_until(media_path, fps, window_start):
+        if self._video_decoder.has_prefetched_until(
+            media_path, fps, window_start, extra_video_filters=extra_video_filters
+        ):
             return
         self._video_decoder.decode_window(
             media_path=media_path,
@@ -204,6 +253,7 @@ class PlaybackService:
             start_frame_index=window_start,
             frame_count=frame_count,
             media_duration_seconds=media_asset.duration_seconds,
+            extra_video_filters=extra_video_filters,
         )
 
     @classmethod

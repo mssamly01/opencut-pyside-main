@@ -9,8 +9,8 @@ from app.ui.app_shell import AppShell
 from app.ui.dialogs.export_dialog import ExportDialog
 from app.ui.shared.icons import build_icon
 from app.ui.top_bar import TopBar
-from PySide6.QtCore import QTimer, QUrl
-from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QKeySequence
+from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QTimer, QUrl
+from PySide6.QtGui import QAction, QCloseEvent, QCursor, QDesktopServices, QKeySequence, QMouseEvent
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -34,11 +34,24 @@ class MainWindow(QMainWindow):
         self._project_info_label: QLabel | None = None
         self._top_bar: TopBar | None = None
 
-        self.setWindowTitle("OpenCut PySide")
+        self.setWindowTitle(self.tr("OpenCut PySide"))
         self.resize(1440, 860)
+
+        # Sprint 16-B: frameless window with custom title-bar chrome.
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+        self.setMouseTracking(True)
+        self._resize_cursor_active = False
+        application = QApplication.instance()
+        if application is not None:
+            application.installEventFilter(self)
 
         self._top_bar = TopBar(self)
         self._top_bar.export_requested.connect(self._on_export_project_triggered)
+        self._top_bar.minimize_requested.connect(self.showMinimized)
+        self._top_bar.maximize_toggle_requested.connect(self._toggle_maximized)
+        self._top_bar.maximize_toggle_via_doubleclick_requested.connect(self._toggle_maximized)
+        self._top_bar.close_requested.connect(self.close)
+        self._top_bar.drag_started.connect(self._start_system_move)
         self._app_shell = AppShell(app_controller=self._app_controller)
         central = QWidget(self)
         central_layout = QVBoxLayout(central)
@@ -102,7 +115,7 @@ class MainWindow(QMainWindow):
 
         self._export_action = self._make_action(
             "export",
-            "Export MP4...",
+            self.tr("Xuất MP4..."),
             self._on_export_project_triggered,
             shortcut=QKeySequence("Ctrl+Shift+E"),
         )
@@ -110,57 +123,57 @@ class MainWindow(QMainWindow):
         file_actions = [
             self._make_action(
                 "new-file",
-                "New Project",
+                self.tr("Dự án mới"),
                 self._on_new_project_triggered,
                 shortcut=QKeySequence.StandardKey.New,
             ),
             self._make_action(
                 "file-open",
-                "Open Project...",
+                self.tr("Mở dự án..."),
                 self._on_load_project_triggered,
                 shortcut=QKeySequence.StandardKey.Open,
             ),
             self._make_action(
                 "file-open",
-                "Load Demo Project",
+                self.tr("Tải dự án demo"),
                 self._on_load_demo_project_triggered,
                 shortcut=QKeySequence("Ctrl+Shift+D"),
             ),
             self._make_action(
                 "save",
-                "Save",
+                self.tr("Lưu"),
                 self._on_save_project_triggered,
                 shortcut=QKeySequence.StandardKey.Save,
             ),
             self._make_action(
                 "save-as",
-                "Save As...",
+                self.tr("Lưu thành..."),
                 self._on_save_project_as_triggered,
                 shortcut=QKeySequence("Ctrl+Shift+S"),
             ),
             self._make_action(
                 "import-media",
-                "Import Media...",
+                self.tr("Nhập phương tiện..."),
                 self._on_import_media_triggered,
                 shortcut=QKeySequence("Ctrl+I"),
             ),
             self._make_action(
                 "import-subtitle",
-                "Import Subtitle...",
+                self.tr("Nhập phụ đề..."),
                 self._on_import_subtitle_triggered,
                 shortcut=QKeySequence("Ctrl+Shift+I"),
             ),
             self._make_action(
                 "export-subtitle",
-                "Export Subtitle...",
+                self.tr("Xuất phụ đề..."),
                 self._on_export_subtitle_triggered,
                 shortcut=QKeySequence("Ctrl+Shift+U"),
             ),
             self._export_action,
-            self._make_action("logs", "Open Logs Folder", self._on_open_logs_triggered),
+            self._make_action("logs", self.tr("Mở thư mục logs"), self._on_open_logs_triggered),
             self._make_action(
                 "delete",
-                "Quit",
+                self.tr("Thoát"),
                 self.close,
                 shortcut=QKeySequence.StandardKey.Quit,
             ),
@@ -169,44 +182,44 @@ class MainWindow(QMainWindow):
         edit_actions = [
             self._make_action(
                 "undo",
-                "Undo",
+                self.tr("Hoàn tác"),
                 self._on_undo_triggered,
                 shortcut=QKeySequence.StandardKey.Undo,
             ),
             self._make_action(
                 "redo",
-                "Redo",
+                self.tr("Làm lại"),
                 self._on_redo_triggered,
                 shortcut=QKeySequence.StandardKey.Redo,
             ),
             self._make_action(
                 "cut",
-                "Cut",
+                self.tr("Cắt"),
                 self._on_cut_triggered,
                 shortcut=QKeySequence.StandardKey.Cut,
             ),
             self._make_action(
                 "copy",
-                "Copy",
+                self.tr("Sao chép"),
                 self._on_copy_triggered,
                 shortcut=QKeySequence.StandardKey.Copy,
             ),
             self._make_action(
                 "paste",
-                "Paste at Playhead",
+                self.tr("Dán tại đầu phát"),
                 self._on_paste_triggered,
                 shortcut=QKeySequence.StandardKey.Paste,
             ),
-            self._make_action("split", "Split at Playhead", self._on_split_triggered, shortcut="S"),
+            self._make_action("split", self.tr("Tách tại đầu phát"), self._on_split_triggered, shortcut="S"),
             self._make_action(
                 "duplicate",
-                "Duplicate",
+                self.tr("Nhân bản"),
                 self._on_duplicate_triggered,
                 shortcut="Ctrl+D",
             ),
             self._make_action(
                 "delete",
-                "Delete",
+                self.tr("Xóa"),
                 self._on_delete_triggered,
                 shortcut="Delete",
             ),
@@ -215,19 +228,19 @@ class MainWindow(QMainWindow):
         view_actions = [
             self._make_action(
                 "zoom-in",
-                "Zoom In Timeline",
+                self.tr("Phóng to dòng thời gian"),
                 self._app_shell.timeline_view.zoom_in,
                 shortcut="Ctrl+=",
             ),
             self._make_action(
                 "zoom-out",
-                "Zoom Out Timeline",
+                self.tr("Thu nhỏ dòng thời gian"),
                 self._app_shell.timeline_view.zoom_out,
                 shortcut="Ctrl+-",
             ),
             self._make_action(
                 "fit",
-                "Fit Timeline",
+                self.tr("Vừa khung dòng thời gian"),
                 self._app_shell.timeline_view.fit_timeline,
                 shortcut="Ctrl+0",
             ),
@@ -236,55 +249,55 @@ class MainWindow(QMainWindow):
         for action in [*file_actions, *edit_actions, *view_actions]:
             self.addAction(action)
 
-        self._top_bar.add_menu_section("File", file_actions)
-        self._top_bar.add_menu_section("Edit", edit_actions)
-        self._top_bar.add_menu_section("View", view_actions)
+        self._top_bar.add_menu_section(self.tr("Tệp"), file_actions)
+        self._top_bar.add_menu_section(self.tr("Chỉnh sửa"), edit_actions)
+        self._top_bar.add_menu_section(self.tr("Xem"), view_actions)
 
     def _build_main_toolbar(self) -> None:
         # Keep transport shortcuts available, but don't show the icon cluster on the main toolbar.
         self.addAction(
             self._make_action(
                 "skip-back",
-                "Start",
+                self.tr("Đầu"),
                 self._on_playhead_start_triggered,
                 shortcut="Ctrl+Home",
-                tooltip="Go to Start (Ctrl+Home)",
+                tooltip=self.tr("Đi tới đầu (Ctrl+Home)"),
             )
         )
         self.addAction(
             self._make_action(
                 "step-back",
-                "Prev Frame",
+                self.tr("Khung trước"),
                 self._on_prev_frame_triggered,
                 shortcut="Alt+Left",
-                tooltip="Previous Frame (Alt+Left)",
+                tooltip=self.tr("Khung trước (Alt+Left)"),
             )
         )
         self.addAction(
             self._make_action(
                 "play",
-                "Play/Pause",
+                self.tr("Phát/Tạm dừng"),
                 self._on_play_pause_toggled,
                 shortcut="Space",
-                tooltip="Play/Pause (Space)",
+                tooltip=self.tr("Phát/Tạm dừng (Space)"),
             )
         )
         self.addAction(
             self._make_action(
                 "stop",
-                "Stop",
+                self.tr("Dừng"),
                 self._on_stop_triggered,
                 shortcut="Shift+Space",
-                tooltip="Stop (Shift+Space)",
+                tooltip=self.tr("Dừng (Shift+Space)"),
             )
         )
         self.addAction(
             self._make_action(
                 "step-forward",
-                "Next Frame",
+                self.tr("Khung tiếp"),
                 self._on_next_frame_triggered,
                 shortcut="Alt+Right",
-                tooltip="Next Frame (Alt+Right)",
+                tooltip=self.tr("Khung tiếp (Alt+Right)"),
             )
         )
 
@@ -328,18 +341,18 @@ class MainWindow(QMainWindow):
         self._app_controller.playback_controller.nudge_frames(1)
 
     def _on_new_project_triggered(self) -> None:
-        if not self._confirm_discard_unsaved_changes("create a new project"):
+        if not self._confirm_discard_unsaved_changes(self.tr("tạo dự án mới")):
             return
         self._app_controller.load_empty_project()
         self._app_controller.playback_controller.stop()
-        self.statusBar().showMessage("New project created.", 2500)
+        self.statusBar().showMessage(self.tr("Đã tạo dự án mới."), 2500)
 
     def _on_load_demo_project_triggered(self) -> None:
-        if not self._confirm_discard_unsaved_changes("load the demo project"):
+        if not self._confirm_discard_unsaved_changes(self.tr("tải dự án demo")):
             return
         self._app_controller.load_demo_project()
         self._app_controller.playback_controller.stop()
-        self.statusBar().showMessage("Demo project loaded.", 2500)
+        self.statusBar().showMessage(self.tr("Đã tải dự án demo."), 2500)
 
     def _on_import_media_triggered(self) -> None:
         self._app_shell.media_panel.open_import_dialog()
@@ -369,14 +382,18 @@ class MainWindow(QMainWindow):
         log_dir.mkdir(parents=True, exist_ok=True)
         opened = QDesktopServices.openUrl(QUrl.fromLocalFile(str(log_dir)))
         if not opened:
-            QMessageBox.warning(self, "Open Logs", f"Could not open log folder:\n{log_dir}")
+            QMessageBox.warning(
+                self,
+                self.tr("Mở logs"),
+                self.tr("Không mở được thư mục log:\n{path}").format(path=log_dir),
+            )
 
     def _on_import_subtitle_triggered(self) -> None:
         selected_path, _ = QFileDialog.getOpenFileName(
             self,
-            "Import Subtitle",
+            self.tr("Nhập phụ đề"),
             "",
-            "Subtitle Files (*.srt *.vtt);;All Files (*.*)",
+            self.tr("Tệp phụ đề (*.srt *.vtt);;Tất cả tệp (*.*)"),
         )
         if not selected_path:
             return
@@ -384,21 +401,28 @@ class MainWindow(QMainWindow):
         try:
             imported_count = self._app_controller.import_subtitles_from_file(selected_path)
         except (OSError, ValueError) as exc:
-            QMessageBox.critical(self, "Import Subtitle Failed", str(exc))
+            QMessageBox.critical(self, self.tr("Nhập phụ đề thất bại"), str(exc))
             return
 
         if imported_count <= 0:
-            QMessageBox.information(self, "Import Subtitle", "No subtitle segment was imported.")
+            QMessageBox.information(
+                self,
+                self.tr("Nhập phụ đề"),
+                self.tr("Không có đoạn phụ đề nào được nhập."),
+            )
             return
 
-        self.statusBar().showMessage(f"Imported {imported_count} subtitle segment(s).", 4000)
+        self.statusBar().showMessage(
+            self.tr("Đã nhập {count} đoạn phụ đề.").format(count=imported_count),
+            4000,
+        )
 
     def _on_export_subtitle_triggered(self) -> None:
         selected_path, _ = QFileDialog.getSaveFileName(
             self,
-            "Export Subtitle",
+            self.tr("Xuất phụ đề"),
             "",
-            "SubRip Subtitle (*.srt);;All Files (*.*)",
+            self.tr("Phụ đề SubRip (*.srt);;Tất cả tệp (*.*)"),
         )
         if not selected_path:
             return
@@ -409,14 +433,21 @@ class MainWindow(QMainWindow):
         try:
             exported_count = self._app_controller.export_subtitles_to_file(selected_path)
         except OSError as exc:
-            QMessageBox.critical(self, "Export Subtitle Failed", str(exc))
+            QMessageBox.critical(self, self.tr("Xuất phụ đề thất bại"), str(exc))
             return
 
         if exported_count <= 0:
-            QMessageBox.information(self, "Export Subtitle", "No subtitle clip to export.")
+            QMessageBox.information(
+                self,
+                self.tr("Xuất phụ đề"),
+                self.tr("Không có clip phụ đề nào để xuất."),
+            )
             return
 
-        self.statusBar().showMessage(f"Exported {exported_count} subtitle segment(s).", 4000)
+        self.statusBar().showMessage(
+            self.tr("Đã xuất {count} đoạn phụ đề.").format(count=exported_count),
+            4000,
+        )
 
     def _on_load_project_triggered(self) -> None:
         last_project_path = self._app_controller.settings_service.last_opened_project_path()
@@ -426,43 +457,56 @@ class MainWindow(QMainWindow):
 
         selected_path, _ = QFileDialog.getOpenFileName(
             self,
-            "Load Project",
+            self.tr("Mở dự án"),
             initial_directory,
-            "Project Files (*.json);;All Files (*.*)",
+            self.tr("Tệp dự án (*.json);;Tất cả tệp (*.*)"),
         )
         if not selected_path:
             return
 
-        if not self._confirm_discard_unsaved_changes("load another project"):
+        if not self._confirm_discard_unsaved_changes(self.tr("mở dự án khác")):
             return
 
         try:
             self._app_controller.load_project_from_file(selected_path)
         except (OSError, ValueError) as exc:
-            QMessageBox.critical(self, "Load Project Failed", str(exc))
+            QMessageBox.critical(self, self.tr("Mở dự án thất bại"), str(exc))
             return
 
         self._app_controller.playback_controller.stop()
-        self.statusBar().showMessage(f"Loaded project: {selected_path}", 3000)
+        self.statusBar().showMessage(
+            self.tr("Đã mở dự án: {path}").format(path=selected_path),
+            3000,
+        )
 
     def _on_save_project_triggered(self) -> None:
         saved_path = self._save_current_project()
         if saved_path is None:
             return
 
-        self.statusBar().showMessage(f"Saved project: {saved_path}", 3000)
+        self.statusBar().showMessage(
+            self.tr("Đã lưu dự án: {path}").format(path=saved_path),
+            3000,
+        )
 
     def _on_save_project_as_triggered(self) -> None:
         saved_path = self._save_current_project(force_prompt=True)
         if saved_path is None:
             return
 
-        self.statusBar().showMessage(f"Saved project: {saved_path}", 3000)
+        self.statusBar().showMessage(
+            self.tr("Đã lưu dự án: {path}").format(path=saved_path),
+            3000,
+        )
 
     def _on_export_project_triggered(self) -> None:
         project = self._app_controller.project_controller.active_project()
         if project is None:
-            QMessageBox.warning(self, "Export Project", "No active project to export.")
+            QMessageBox.warning(
+                self,
+                self.tr("Xuất dự án"),
+                self.tr("Không có dự án đang mở để xuất."),
+            )
             return
 
         project_path = self._app_controller.project_controller.active_project_path()
@@ -492,7 +536,7 @@ class MainWindow(QMainWindow):
                 options=dialog.export_options(),
             )
         except (OSError, ValueError, RuntimeError) as exc:
-            QMessageBox.critical(self, "Export Failed", str(exc))
+            QMessageBox.critical(self, self.tr("Xuất thất bại"), str(exc))
             return
 
         self._app_controller.settings_service.record_export_output(str(normalized_path))
@@ -505,9 +549,9 @@ class MainWindow(QMainWindow):
 
         selected_path, _ = QFileDialog.getSaveFileName(
             self,
-            "Save Project",
+            self.tr("Lưu dự án"),
             initial_directory,
-            "Project Files (*.json);;All Files (*.*)",
+            self.tr("Tệp dự án (*.json);;Tất cả tệp (*.*)"),
         )
         if not selected_path:
             return None
@@ -523,10 +567,14 @@ class MainWindow(QMainWindow):
         return cleaned_name or "export"
 
     def _on_export_started(self, output_path: str) -> None:
-        self.statusBar().showMessage(f"Exporting: {output_path}", 0)
+        self.statusBar().showMessage(
+            self.tr("Đang xuất: {path}").format(path=output_path),
+            0,
+        )
 
     def _on_export_progress_changed(self, percent: float, message: str) -> None:
-        progress_message = f"Exporting... {max(0.0, min(percent, 100.0)):.0f}%"
+        clamped_percent = max(0.0, min(percent, 100.0))
+        progress_message = self.tr("Đang xuất... {percent:.0f}%").format(percent=clamped_percent)
         if message:
             progress_message = f"{progress_message} - {message}"
         self.statusBar().showMessage(progress_message, 0)
@@ -535,14 +583,25 @@ class MainWindow(QMainWindow):
         output_path = getattr(export_result, "output_path", str(export_result))
         warnings = getattr(export_result, "warnings", [])
         if warnings:
-            self.statusBar().showMessage(f"Exported: {output_path} ({len(warnings)} warning(s))", 5000)
+            self.statusBar().showMessage(
+                self.tr("Đã xuất: {path} ({count} cảnh báo)").format(
+                    path=output_path, count=len(warnings)
+                ),
+                5000,
+            )
             return
 
-        self.statusBar().showMessage(f"Exported: {output_path}", 5000)
+        self.statusBar().showMessage(
+            self.tr("Đã xuất: {path}").format(path=output_path),
+            5000,
+        )
 
     def _on_export_failed(self, message: str) -> None:
-        self.statusBar().showMessage(f"Export failed: {message}", 5000)
-        QMessageBox.critical(self, "Export Failed", message)
+        self.statusBar().showMessage(
+            self.tr("Xuất thất bại: {message}").format(message=message),
+            5000,
+        )
+        QMessageBox.critical(self, self.tr("Xuất thất bại"), message)
 
     def _on_export_in_progress_changed(self, is_exporting: bool) -> None:
         if self._export_action is not None:
@@ -555,13 +614,15 @@ class MainWindow(QMainWindow):
             return
         project = self._app_controller.project_controller.active_project()
         if project is None:
-            self._project_info_label.setText("No project")
+            self._project_info_label.setText(self.tr("Không có dự án"))
             return
         resolution = f"{project.width}x{project.height}"
-        fps = f"{project.fps:g} fps"
+        fps = self.tr("{fps:g} fps").format(fps=project.fps)
         total_clips = sum(len(track.clips) for track in project.timeline.tracks)
+        project_name = project.name or self.tr("Không có tiêu đề")
+        clip_label = self.tr("{count} clip").format(count=total_clips)
         self._project_info_label.setText(
-            f"{project.name or 'Untitled'}   |   {resolution}   |   {fps}   |   {total_clips} clip(s)"
+            f"{project_name}   |   {resolution}   |   {fps}   |   {clip_label}"
         )
 
     def _refresh_dirty_indicator(self, *_args: object) -> None:
@@ -569,10 +630,10 @@ class MainWindow(QMainWindow):
             return
         if self._app_controller.has_unsaved_changes():
             self._dirty_label.setText("*")
-            self._dirty_label.setToolTip("Unsaved changes")
+            self._dirty_label.setToolTip(self.tr("Có thay đổi chưa lưu"))
         else:
             self._dirty_label.setText(" ")
-            self._dirty_label.setToolTip("All changes saved")
+            self._dirty_label.setToolTip(self.tr("Đã lưu mọi thay đổi"))
 
     def _refresh_timecode(self, time_seconds: float) -> None:
         if self._timecode_label is None:
@@ -588,7 +649,7 @@ class MainWindow(QMainWindow):
 
     def _refresh_window_title(self, *_args: object) -> None:
         project = self._app_controller.project_controller.active_project()
-        project_name = "Untitled"
+        project_name = self.tr("Không có tiêu đề")
         if project is not None and project.name:
             project_name = project.name
 
@@ -605,11 +666,115 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"OpenCut PySide - {project_name}{dirty_suffix}")
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        if not self._confirm_discard_unsaved_changes("close the app"):
+        if not self._confirm_discard_unsaved_changes(self.tr("đóng ứng dụng")):
             event.ignore()
             return
 
         event.accept()
+
+    # Sprint 16-B: frameless window helpers ---------------------------------
+
+    _RESIZE_BORDER = 4
+
+    def _toggle_maximized(self) -> None:
+        if self.isMaximized():
+            self.showNormal()
+        else:
+            self.showMaximized()
+
+    def _start_system_move(self) -> None:
+        # Allow drag-to-unmaximize: the compositor handles restoring the
+        # window when the user drags a maximized title bar away from the edge.
+        handle = self.windowHandle()
+        if handle is not None:
+            handle.startSystemMove()
+
+    def _resize_edges_at(self, pos: QPoint) -> Qt.Edges | None:
+        if self.isMaximized() or self.isFullScreen():
+            return None
+        margin = self._RESIZE_BORDER
+        rect = self.rect()
+        edges = Qt.Edges()
+        if pos.x() <= margin:
+            edges |= Qt.Edge.LeftEdge
+        elif pos.x() >= rect.width() - margin:
+            edges |= Qt.Edge.RightEdge
+        if pos.y() <= margin:
+            edges |= Qt.Edge.TopEdge
+        elif pos.y() >= rect.height() - margin:
+            edges |= Qt.Edge.BottomEdge
+        return edges if edges else None
+
+    def _cursor_for_edges(self, edges: Qt.Edges) -> Qt.CursorShape:
+        left = bool(edges & Qt.Edge.LeftEdge)
+        right = bool(edges & Qt.Edge.RightEdge)
+        top = bool(edges & Qt.Edge.TopEdge)
+        bottom = bool(edges & Qt.Edge.BottomEdge)
+        if (top and left) or (bottom and right):
+            return Qt.CursorShape.SizeFDiagCursor
+        if (top and right) or (bottom and left):
+            return Qt.CursorShape.SizeBDiagCursor
+        if left or right:
+            return Qt.CursorShape.SizeHorCursor
+        return Qt.CursorShape.SizeVerCursor
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        # Child widgets cover the entire MainWindow, so direct mouse events
+        # on `self` never fire near the edges. We watch the QApplication for
+        # mouse activity and intercept presses/moves whose global position
+        # falls inside the resize border.
+        event_type = event.type()
+        if event_type == QEvent.Type.MouseMove and isinstance(event, QMouseEvent):
+            if not self.isActiveWindow():
+                # A modal dialog or external window grabbed focus while we
+                # were hovering the resize border — release the override
+                # cursor so the dialog isn't stuck with our resize shape.
+                self._clear_resize_cursor()
+                return super().eventFilter(watched, event)
+            local = self.mapFromGlobal(event.globalPosition().toPoint())
+            if not self.rect().contains(local) or (event.buttons() & Qt.MouseButton.LeftButton):
+                self._clear_resize_cursor()
+                return super().eventFilter(watched, event)
+            edges = self._resize_edges_at(local)
+            if edges is None:
+                self._clear_resize_cursor()
+            else:
+                shape = self._cursor_for_edges(edges)
+                if self._resize_cursor_active:
+                    QApplication.changeOverrideCursor(QCursor(shape))
+                else:
+                    QApplication.setOverrideCursor(QCursor(shape))
+                    self._resize_cursor_active = True
+        elif event_type == QEvent.Type.MouseButtonPress and isinstance(event, QMouseEvent):
+            if not self.isActiveWindow():
+                # Don't steal clicks from modal dialogs (Export, QMessageBox,
+                # QFileDialog) — they get focus while MainWindow is inactive.
+                return super().eventFilter(watched, event)
+            if event.button() != Qt.MouseButton.LeftButton:
+                return super().eventFilter(watched, event)
+            local = self.mapFromGlobal(event.globalPosition().toPoint())
+            if not self.rect().contains(local):
+                return super().eventFilter(watched, event)
+            edges = self._resize_edges_at(local)
+            if edges is None:
+                return super().eventFilter(watched, event)
+            handle = self.windowHandle()
+            if handle is None:
+                return super().eventFilter(watched, event)
+            self._clear_resize_cursor()
+            handle.startSystemResize(edges)
+            return True
+        return super().eventFilter(watched, event)
+
+    def _clear_resize_cursor(self) -> None:
+        if self._resize_cursor_active:
+            QApplication.restoreOverrideCursor()
+            self._resize_cursor_active = False
+
+    def changeEvent(self, event: QEvent) -> None:
+        if event.type() == QEvent.Type.WindowStateChange and self._top_bar is not None:
+            self._top_bar.set_maximized_state(self.isMaximized())
+        super().changeEvent(event)
 
     def _confirm_discard_unsaved_changes(self, action_description: str) -> bool:
         if not self._app_controller.has_unsaved_changes():
@@ -617,8 +782,10 @@ class MainWindow(QMainWindow):
 
         response = QMessageBox.question(
             self,
-            "Unsaved Changes",
-            f"The current project has unsaved changes. Do you want to save before you {action_description}?",
+            self.tr("Thay đổi chưa lưu"),
+            self.tr(
+                "Dự án hiện tại có thay đổi chưa lưu. Bạn muốn lưu trước khi {action} không?"
+            ).format(action=action_description),
             QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
             QMessageBox.StandardButton.Save,
         )
@@ -640,11 +807,15 @@ class MainWindow(QMainWindow):
         try:
             saved_path = self._app_controller.save_active_project(target_path)
         except (OSError, ValueError) as exc:
-            QMessageBox.critical(self, "Save Project Failed", str(exc))
+            QMessageBox.critical(self, self.tr("Lưu dự án thất bại"), str(exc))
             return None
 
         if saved_path is None:
-            QMessageBox.warning(self, "Save Project", "No active project to save.")
+            QMessageBox.warning(
+                self,
+                self.tr("Lưu dự án"),
+                self.tr("Không có dự án đang mở để lưu."),
+            )
             return None
 
         return saved_path
@@ -659,22 +830,32 @@ class MainWindow(QMainWindow):
 
         response = QMessageBox.question(
             self,
-            "Recover Autosave",
-            "A recoverable autosave snapshot was found.\n\n"
-            "Would you like to recover it?\n\n"
-            f"{self._app_controller.autosave_summary()}",
+            self.tr("Khôi phục tự động lưu"),
+            self.tr(
+                "Đã tìm thấy bản tự động lưu có thể khôi phục.\n\n"
+                "Bạn muốn khôi phục không?\n\n{summary}"
+            ).format(summary=self._app_controller.autosave_summary()),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes,
         )
         if response == QMessageBox.StandardButton.Yes:
             recovered = self._app_controller.recover_from_autosave()
             if recovered:
-                self.statusBar().showMessage("Recovered project from autosave.", 4000)
+                self.statusBar().showMessage(
+                    self.tr("Đã khôi phục dự án từ bản tự động lưu."), 4000
+                )
             else:
-                QMessageBox.warning(self, "Recover Autosave", "Unable to recover autosave snapshot.")
+                QMessageBox.warning(
+                    self,
+                    self.tr("Khôi phục tự động lưu"),
+                    self.tr("Không thể khôi phục bản tự động lưu."),
+                )
             return
 
         self._app_controller.discard_autosave_snapshot()
 
     def _on_autosave_failed(self, message: str) -> None:
-        self.statusBar().showMessage(f"Autosave failed: {message}", 5000)
+        self.statusBar().showMessage(
+            self.tr("Tự động lưu thất bại: {message}").format(message=message),
+            5000,
+        )

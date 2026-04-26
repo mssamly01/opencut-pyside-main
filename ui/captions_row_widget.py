@@ -73,7 +73,7 @@ class CaptionRowWidget(QWidget):
         self._text_edit = _CaptionLineEdit(self)
         self._text_edit.setObjectName("caption_row_text")
         self._text_edit.setText(self._original_text)
-        self._text_edit.setPlaceholderText("(empty caption)")
+        self._text_edit.setPlaceholderText(self.tr("(phụ đề trống)"))
         self._text_edit.commit_requested.connect(self._on_commit)
         self._text_edit.revert_requested.connect(self._on_revert)
         layout.addWidget(self._text_edit, 1)
