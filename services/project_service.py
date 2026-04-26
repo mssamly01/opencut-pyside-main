@@ -250,6 +250,10 @@ class ProjectService:
             payload["scale_keyframes"] = self._keyframes_to_dict(clip.scale_keyframes)
             payload["rotation_keyframes"] = self._keyframes_to_dict(clip.rotation_keyframes)
             payload["playback_speed_keyframes"] = self._keyframes_to_dict(clip.playback_speed_keyframes)
+            payload["brightness_keyframes"] = self._keyframes_to_dict(clip.brightness_keyframes)
+            payload["contrast_keyframes"] = self._keyframes_to_dict(clip.contrast_keyframes)
+            payload["saturation_keyframes"] = self._keyframes_to_dict(clip.saturation_keyframes)
+            payload["hue_keyframes"] = self._keyframes_to_dict(clip.hue_keyframes)
         elif isinstance(clip, AudioClip):
             payload["gain_db"] = clip.gain_db
             payload["playback_speed"] = clip.playback_speed
@@ -268,6 +272,10 @@ class ProjectService:
             payload["position_y_keyframes"] = self._keyframes_to_dict(clip.position_y_keyframes)
             payload["scale_keyframes"] = self._keyframes_to_dict(clip.scale_keyframes)
             payload["rotation_keyframes"] = self._keyframes_to_dict(clip.rotation_keyframes)
+            payload["brightness_keyframes"] = self._keyframes_to_dict(clip.brightness_keyframes)
+            payload["contrast_keyframes"] = self._keyframes_to_dict(clip.contrast_keyframes)
+            payload["saturation_keyframes"] = self._keyframes_to_dict(clip.saturation_keyframes)
+            payload["hue_keyframes"] = self._keyframes_to_dict(clip.hue_keyframes)
         elif isinstance(clip, TextClip):
             payload["content"] = clip.content
             payload["font_size"] = clip.font_size
@@ -347,6 +355,10 @@ class ProjectService:
                 scale_keyframes=self._keyframes_from_payload(payload.get("scale_keyframes")),
                 rotation_keyframes=self._keyframes_from_payload(payload.get("rotation_keyframes")),
                 playback_speed_keyframes=self._keyframes_from_payload(payload.get("playback_speed_keyframes")),
+                brightness_keyframes=self._keyframes_from_payload(payload.get("brightness_keyframes")),
+                contrast_keyframes=self._keyframes_from_payload(payload.get("contrast_keyframes")),
+                saturation_keyframes=self._keyframes_from_payload(payload.get("saturation_keyframes")),
+                hue_keyframes=self._keyframes_from_payload(payload.get("hue_keyframes")),
             )
         if clip_type == "audio":
             return AudioClip(
@@ -371,6 +383,10 @@ class ProjectService:
                 position_y_keyframes=self._keyframes_from_payload(payload.get("position_y_keyframes")),
                 scale_keyframes=self._keyframes_from_payload(payload.get("scale_keyframes")),
                 rotation_keyframes=self._keyframes_from_payload(payload.get("rotation_keyframes")),
+                brightness_keyframes=self._keyframes_from_payload(payload.get("brightness_keyframes")),
+                contrast_keyframes=self._keyframes_from_payload(payload.get("contrast_keyframes")),
+                saturation_keyframes=self._keyframes_from_payload(payload.get("saturation_keyframes")),
+                hue_keyframes=self._keyframes_from_payload(payload.get("hue_keyframes")),
             )
         if clip_type == "text":
             return TextClip(

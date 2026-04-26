@@ -70,10 +70,14 @@ class PlaybackService:
         safe_fps = self._safe_fps(project.fps)
         frame_index = self._frame_index(source_time, safe_fps)
         normalized_media_path = str(media_path)
-        # Per-clip color/LUT filter chain. Reusing the export-time builder so
-        # preview and export apply identical grading; cache invalidation is
-        # automatic because the filter chain is part of the cache key.
-        extra_filters = ExportService._color_adjust_filters_for_clip(active_clip)
+        # Per-clip color/LUT filter chain.  Re-uses the export-time builder
+        # but passes ``time_in_clip`` so any color keyframes are evaluated and
+        # baked at the current playhead — the per-frame ffmpeg invocation
+        # gets a constant chain, and the cache key naturally varies with t.
+        time_in_clip = max(0.0, float(time_seconds) - float(active_clip.timeline_start))
+        extra_filters = ExportService._color_adjust_filters_for_clip(
+            active_clip, time_in_clip=time_in_clip
+        )
         cached_frame = self._video_decoder.get_frame(
             normalized_media_path, safe_fps, frame_index, extra_video_filters=extra_filters
         )
