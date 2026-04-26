@@ -16,7 +16,7 @@ class ImageInspector(ClipInspectorBase):
         self._scale_spin.setSingleStep(0.1)
         self._scale_spin.setKeyboardTracking(False)
         self._scale_spin.editingFinished.connect(self._commit_specific_fields)
-        self._form.addRow("Scale", self._scale_spin)
+        self._form.addRow(self.tr("Tỉ lệ"), self._scale_spin)
 
     def _refresh_specific_fields(self) -> None:
         clip = self._clip

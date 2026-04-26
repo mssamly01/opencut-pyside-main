@@ -39,9 +39,10 @@ def test_main_window_has_topbar_statusbar_and_timecode() -> None:
     top_menu = main_window._top_bar._menu_button.menu()
     assert top_menu is not None
     action_texts = [action.text() for action in top_menu.actions() if not action.isSeparator()]
-    assert "Save" in action_texts
-    assert "Undo" in action_texts
-    assert "Quit" in action_texts
+    # Sprint 16-D: Vietnamese is the source language; UI labels default to VI.
+    assert "Lưu" in action_texts
+    assert "Hoàn tác" in action_texts
+    assert "Thoát" in action_texts
 
     assert main_window.statusBar() is not None
     main_window._refresh_timecode(3723.456)

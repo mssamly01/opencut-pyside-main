@@ -16,9 +16,9 @@ class VideoInspector(ClipInspectorBase):
         self._playback_speed_spin.setSingleStep(0.1)
         self._playback_speed_spin.setKeyboardTracking(False)
         self._playback_speed_spin.editingFinished.connect(self._commit_specific_fields)
-        self._form.addRow("Playback Speed", self._playback_speed_spin)
+        self._form.addRow(self.tr("Tốc độ phát"), self._playback_speed_spin)
 
-        self._reversed_check = QCheckBox("Reversed", self)
+        self._reversed_check = QCheckBox(self.tr("Đảo ngược"), self)
         self._reversed_check.toggled.connect(self._commit_specific_fields)
         self._form.addRow("", self._reversed_check)
 

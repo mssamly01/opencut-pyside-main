@@ -3,10 +3,12 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from app.ui.shared.icons import build_icon
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import QCoreApplication, QSize, Qt, Signal
 from PySide6.QtWidgets import QButtonGroup, QHBoxLayout, QToolButton, QWidget
 
 # Keep ordering stable: index maps to LeftSidebarStack page index.
+# Labels are translated lazily via QCoreApplication.translate so they pick up
+# the active QTranslator at widget-build time.
 RAIL_CATEGORIES: list[tuple[str, str, str]] = [
     ("media", "Phương tiện", "rail-media"),
     ("audio", "Âm thanh", "rail-audio"),
@@ -59,7 +61,8 @@ class LeftRail(QWidget):
         self._icon_names: dict[str, str] = {}
 
         for key, label, icon_name in RAIL_CATEGORIES:
-            button = self._build_button(key, label, icon_name)
+            translated_label = QCoreApplication.translate("LeftRail", label)
+            button = self._build_button(key, translated_label, icon_name)
             layout.addWidget(button)
             self._group.addButton(button)
             self._buttons[key] = button

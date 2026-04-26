@@ -8,7 +8,7 @@ from app.domain.media_asset import MediaAsset
 from app.services.thumbnail_service import ThumbnailService
 from app.ui.media_panel.media_item_widget import MediaListWidget
 from app.ui.shared.icons import build_icon, build_pixmap, icon_size
-from PySide6.QtCore import QSize, Qt, QUrl
+from PySide6.QtCore import QCoreApplication, QSize, Qt, QUrl
 from PySide6.QtGui import QAction, QBrush, QColor, QDesktopServices, QGuiApplication, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -42,11 +42,11 @@ class MediaPanel(QWidget):
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
 
-        header = QLabel("Media Library", self)
+        header = QLabel(self.tr("Thư viện phương tiện"), self)
         header.setStyleSheet("font-weight: 600; color: #e6edf3; padding: 2px 0;")
         layout.addWidget(header)
 
-        self.import_button = QPushButton("  Import Media...", self)
+        self.import_button = QPushButton(self.tr("  Nhập phương tiện..."), self)
         self.import_button.setIcon(build_icon("import-media"))
         self.import_button.setIconSize(icon_size(16))
         self.import_button.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -76,9 +76,12 @@ class MediaPanel(QWidget):
     def _on_import_clicked(self) -> None:
         selected_paths, _ = QFileDialog.getOpenFileNames(
             self,
-            "Import Media Files",
+            self.tr("Nhập tệp phương tiện"),
             "",
-            "Media Files (*.mp4 *.mov *.mkv *.avi *.webm *.m4v *.mp3 *.wav *.aac *.flac *.ogg *.m4a *.png *.jpg *.jpeg *.bmp *.gif *.webp);;All Files (*.*)",
+            self.tr(
+                "Tệp phương tiện (*.mp4 *.mov *.mkv *.avi *.webm *.m4v *.mp3 *.wav *.aac "
+                "*.flac *.ogg *.m4a *.png *.jpg *.jpeg *.bmp *.gif *.webp);;Tất cả tệp (*.*)"
+            ),
         )
         if not selected_paths:
             return
@@ -90,7 +93,7 @@ class MediaPanel(QWidget):
 
         project = self._project_controller.active_project()
         if project is None or not project.media_items:
-            placeholder = QListWidgetItem("No media imported")
+            placeholder = QListWidgetItem(self.tr("Chưa nhập phương tiện"))
             placeholder.setFlags(Qt.ItemFlag.NoItemFlags)
             placeholder.setForeground(Qt.GlobalColor.gray)
             self.media_list.addItem(placeholder)
@@ -176,15 +179,24 @@ class MediaPanel(QWidget):
 
     @staticmethod
     def _format_tooltip(media_asset: MediaAsset) -> str:
+        translate = QCoreApplication.translate
         file_name = Path(media_asset.file_path).name if media_asset.file_path else media_asset.name
         parts = [
             file_name,
-            f"Type: {media_asset.media_type}",
+            translate("MediaPanel", "Loại: {type}").format(type=media_asset.media_type),
         ]
         if media_asset.duration_seconds:
-            parts.append(f"Duration: {media_asset.duration_seconds:.2f}s")
+            parts.append(
+                translate("MediaPanel", "Thời lượng: {seconds:.2f}s").format(
+                    seconds=media_asset.duration_seconds
+                )
+            )
         if media_asset.file_size_bytes:
-            parts.append(f"Size: {media_asset.file_size_bytes / (1024 * 1024):.1f} MB")
+            parts.append(
+                translate("MediaPanel", "Kích thước: {size:.1f} MB").format(
+                    size=media_asset.file_size_bytes / (1024 * 1024)
+                )
+            )
         return "\n".join(parts)
 
     def _on_context_menu_requested(self, position) -> None:
@@ -199,15 +211,15 @@ class MediaPanel(QWidget):
             return
 
         menu = QMenu(self.media_list)
-        reveal_action = QAction("Reveal in Folder", menu)
-        copy_path_action = QAction("Copy File Path", menu)
+        reveal_action = QAction(self.tr("Hiện trong thư mục"), menu)
+        copy_path_action = QAction(self.tr("Sao chép đường dẫn tệp"), menu)
         menu.addAction(reveal_action)
         menu.addAction(copy_path_action)
 
         remove_action: QAction | None = None
         if self._timeline_controller is not None:
             menu.addSeparator()
-            remove_action = QAction("Remove from Project", menu)
+            remove_action = QAction(self.tr("Xóa khỏi project"), menu)
             menu.addAction(remove_action)
 
         triggered = menu.exec(self.media_list.viewport().mapToGlobal(position))
@@ -257,15 +269,15 @@ class MediaPanel(QWidget):
         clip_count = len(timeline_controller.clips_using_media(media_asset.media_id))
         display_name = media_asset.name or Path(media_asset.file_path).name
         if clip_count > 0:
-            message = (
-                f"Có {clip_count} clip đang dùng \"{display_name}\". "
-                "Xóa asset sẽ xóa luôn các clip này (có thể Undo). Tiếp tục?"
-            )
+            message = self.tr(
+                'Có {count} clip đang dùng "{name}". Xóa asset sẽ xóa luôn các clip này '
+                "(có thể Undo). Tiếp tục?"
+            ).format(count=clip_count, name=display_name)
         else:
-            message = f"Xóa \"{display_name}\" khỏi project?"
+            message = self.tr('Xóa "{name}" khỏi project?').format(name=display_name)
         reply = QMessageBox.question(
             self,
-            "Xóa khỏi project",
+            self.tr("Xóa khỏi project"),
             message,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,

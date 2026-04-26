@@ -14,19 +14,19 @@ class ProjectInspector(CommandAwareInspector):
 
         self._name_edit = QLineEdit(self)
         self._name_edit.editingFinished.connect(self._commit_name)
-        layout.addRow("Project Name", self._name_edit)
+        layout.addRow(self.tr("Tên dự án"), self._name_edit)
 
         self._width_spin = QSpinBox(self)
         self._width_spin.setRange(1, 16384)
         self._width_spin.setKeyboardTracking(False)
         self._width_spin.editingFinished.connect(self._commit_dimensions)
-        layout.addRow("Width", self._width_spin)
+        layout.addRow(self.tr("Chiều rộng"), self._width_spin)
 
         self._height_spin = QSpinBox(self)
         self._height_spin.setRange(1, 16384)
         self._height_spin.setKeyboardTracking(False)
         self._height_spin.editingFinished.connect(self._commit_dimensions)
-        layout.addRow("Height", self._height_spin)
+        layout.addRow(self.tr("Chiều cao"), self._height_spin)
 
         self._fps_spin = QDoubleSpinBox(self)
         self._fps_spin.setRange(1.0, 240.0)
@@ -34,7 +34,7 @@ class ProjectInspector(CommandAwareInspector):
         self._fps_spin.setSingleStep(1.0)
         self._fps_spin.setKeyboardTracking(False)
         self._fps_spin.editingFinished.connect(self._commit_fps)
-        layout.addRow("FPS", self._fps_spin)
+        layout.addRow(self.tr("FPS"), self._fps_spin)
 
     def set_project(self, project: Project | None) -> None:
         self._project = project

@@ -22,7 +22,7 @@ class TopBar(QWidget):
         self._menu_button = QToolButton(self)
         self._menu_button.setObjectName("top_menu_button")
         self._menu_button.setText("☰")
-        self._menu_button.setToolTip("Menu")
+        self._menu_button.setToolTip(self.tr("Menu"))
         self._menu_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self._menu_button.setFixedSize(28, 24)
         self._menu = QMenu(self._menu_button)
@@ -31,14 +31,14 @@ class TopBar(QWidget):
 
         layout.addStretch(1)
 
-        self._project_name = QLabel("Untitled", self)
+        self._project_name = QLabel(self.tr("Không có tiêu đề"), self)
         self._project_name.setObjectName("top_project_name")
         self._project_name.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._project_name)
 
         layout.addStretch(1)
 
-        self._export_button = QPushButton("Export", self)
+        self._export_button = QPushButton(self.tr("Xuất"), self)
         self._export_button.setObjectName("top_export_button")
         self._export_button.clicked.connect(self.export_requested.emit)
         layout.addWidget(self._export_button)
@@ -48,7 +48,7 @@ class TopBar(QWidget):
 
     def set_project_name(self, name: str, dirty: bool = False) -> None:
         suffix = " *" if dirty else ""
-        self._project_name.setText((name or "Untitled") + suffix)
+        self._project_name.setText((name or self.tr("Không có tiêu đề")) + suffix)
 
     def set_export_enabled(self, enabled: bool) -> None:
         self._export_button.setEnabled(enabled)

@@ -81,17 +81,17 @@ class TextInspector(ClipInspectorBase):
         self._preset_combo = QComboBox(self)
         self._preset_combo.addItem("-", userData="")
         for key, preset in CAPTION_PRESETS.items():
-            self._preset_combo.addItem(preset.label, userData=key)
+            self._preset_combo.addItem(self.tr(preset.label), userData=key)
         self._preset_combo.activated.connect(self._apply_selected_preset)
-        self._form.addRow("Preset", self._preset_combo)
+        self._form.addRow(self.tr("Preset"), self._preset_combo)
 
         self._content_edit = QLineEdit(self)
         self._content_edit.editingFinished.connect(self._commit_specific_fields)
-        self._form.addRow("Content", self._content_edit)
+        self._form.addRow(self.tr("Nội dung"), self._content_edit)
 
         self._font_family_edit = QLineEdit(self)
         self._font_family_edit.editingFinished.connect(self._commit_specific_fields)
-        self._form.addRow("Font Family", self._font_family_edit)
+        self._form.addRow(self.tr("Phông chữ"), self._font_family_edit)
 
         self._font_size_spin = QDoubleSpinBox(self)
         self._font_size_spin.setRange(8, 512)
@@ -99,26 +99,26 @@ class TextInspector(ClipInspectorBase):
         self._font_size_spin.setSingleStep(4)
         self._font_size_spin.setKeyboardTracking(False)
         self._font_size_spin.editingFinished.connect(self._commit_specific_fields)
-        self._form.addRow("Font Size", self._font_size_spin)
+        self._form.addRow(self.tr("Cỡ chữ"), self._font_size_spin)
 
-        self._bold_check = QCheckBox("Bold", self)
+        self._bold_check = QCheckBox(self.tr("In đậm"), self)
         self._bold_check.toggled.connect(self._commit_specific_fields)
         self._form.addRow("", self._bold_check)
 
-        self._italic_check = QCheckBox("Italic", self)
+        self._italic_check = QCheckBox(self.tr("In nghiêng"), self)
         self._italic_check.toggled.connect(self._commit_specific_fields)
         self._form.addRow("", self._italic_check)
 
         self._alignment_combo = QComboBox(self)
-        self._alignment_combo.addItem("Left", userData="left")
-        self._alignment_combo.addItem("Center", userData="center")
-        self._alignment_combo.addItem("Right", userData="right")
+        self._alignment_combo.addItem(self.tr("Trái"), userData="left")
+        self._alignment_combo.addItem(self.tr("Giữa"), userData="center")
+        self._alignment_combo.addItem(self.tr("Phải"), userData="right")
         self._alignment_combo.currentIndexChanged.connect(self._commit_specific_fields)
-        self._form.addRow("Alignment", self._alignment_combo)
+        self._form.addRow(self.tr("Căn lề"), self._alignment_combo)
 
         self._color_edit = QLineEdit(self)
         self._color_edit.editingFinished.connect(self._commit_specific_fields)
-        self._form.addRow("Color", self._color_edit)
+        self._form.addRow(self.tr("Màu sắc"), self._color_edit)
 
         self._highlight_color_edit = QLineEdit(self)
         self._highlight_color_edit.editingFinished.connect(self._commit_specific_fields)
@@ -131,7 +131,7 @@ class TextInspector(ClipInspectorBase):
         highlight_layout.setSpacing(6)
         highlight_layout.addWidget(self._highlight_color_edit, 1)
         highlight_layout.addWidget(self._highlight_color_pick_button)
-        self._form.addRow("Highlight", highlight_row)
+        self._form.addRow(self.tr("Đánh dấu"), highlight_row)
 
         self._pos_x_spin = QDoubleSpinBox(self)
         self._pos_x_spin.setRange(0.0, 1.0)
@@ -139,7 +139,7 @@ class TextInspector(ClipInspectorBase):
         self._pos_x_spin.setSingleStep(0.05)
         self._pos_x_spin.setKeyboardTracking(False)
         self._pos_x_spin.editingFinished.connect(self._commit_specific_fields)
-        self._form.addRow("Pos X", self._pos_x_spin)
+        self._form.addRow(self.tr("Vị trí X"), self._pos_x_spin)
 
         self._pos_y_spin = QDoubleSpinBox(self)
         self._pos_y_spin.setRange(0.0, 1.0)
@@ -147,11 +147,11 @@ class TextInspector(ClipInspectorBase):
         self._pos_y_spin.setSingleStep(0.05)
         self._pos_y_spin.setKeyboardTracking(False)
         self._pos_y_spin.editingFinished.connect(self._commit_specific_fields)
-        self._form.addRow("Pos Y", self._pos_y_spin)
+        self._form.addRow(self.tr("Vị trí Y"), self._pos_y_spin)
 
         self._outline_color_edit = QLineEdit(self)
         self._outline_color_edit.editingFinished.connect(self._commit_specific_fields)
-        self._form.addRow("Outline Color", self._outline_color_edit)
+        self._form.addRow(self.tr("Màu viền"), self._outline_color_edit)
 
         self._outline_width_spin = QDoubleSpinBox(self)
         self._outline_width_spin.setRange(0.0, 32.0)
@@ -159,11 +159,11 @@ class TextInspector(ClipInspectorBase):
         self._outline_width_spin.setSingleStep(0.5)
         self._outline_width_spin.setKeyboardTracking(False)
         self._outline_width_spin.editingFinished.connect(self._commit_specific_fields)
-        self._form.addRow("Outline Width", self._outline_width_spin)
+        self._form.addRow(self.tr("Độ dày viền"), self._outline_width_spin)
 
         self._bg_color_edit = QLineEdit(self)
         self._bg_color_edit.editingFinished.connect(self._commit_specific_fields)
-        self._form.addRow("Background Color", self._bg_color_edit)
+        self._form.addRow(self.tr("Màu nền"), self._bg_color_edit)
 
         self._bg_opacity_spin = QDoubleSpinBox(self)
         self._bg_opacity_spin.setRange(0.0, 1.0)
@@ -171,11 +171,11 @@ class TextInspector(ClipInspectorBase):
         self._bg_opacity_spin.setSingleStep(0.05)
         self._bg_opacity_spin.setKeyboardTracking(False)
         self._bg_opacity_spin.editingFinished.connect(self._commit_specific_fields)
-        self._form.addRow("Background Opacity", self._bg_opacity_spin)
+        self._form.addRow(self.tr("Độ đục nền"), self._bg_opacity_spin)
 
         self._shadow_color_edit = QLineEdit(self)
         self._shadow_color_edit.editingFinished.connect(self._commit_specific_fields)
-        self._form.addRow("Shadow Color", self._shadow_color_edit)
+        self._form.addRow(self.tr("Màu bóng"), self._shadow_color_edit)
 
         self._shadow_offset_x_spin = QDoubleSpinBox(self)
         self._shadow_offset_x_spin.setRange(-64.0, 64.0)
@@ -183,7 +183,7 @@ class TextInspector(ClipInspectorBase):
         self._shadow_offset_x_spin.setSingleStep(0.5)
         self._shadow_offset_x_spin.setKeyboardTracking(False)
         self._shadow_offset_x_spin.editingFinished.connect(self._commit_specific_fields)
-        self._form.addRow("Shadow Offset X", self._shadow_offset_x_spin)
+        self._form.addRow(self.tr("Lệch bóng X"), self._shadow_offset_x_spin)
 
         self._shadow_offset_y_spin = QDoubleSpinBox(self)
         self._shadow_offset_y_spin.setRange(-64.0, 64.0)
@@ -191,9 +191,9 @@ class TextInspector(ClipInspectorBase):
         self._shadow_offset_y_spin.setSingleStep(0.5)
         self._shadow_offset_y_spin.setKeyboardTracking(False)
         self._shadow_offset_y_spin.editingFinished.connect(self._commit_specific_fields)
-        self._form.addRow("Shadow Offset Y", self._shadow_offset_y_spin)
+        self._form.addRow(self.tr("Lệch bóng Y"), self._shadow_offset_y_spin)
 
-        self._auto_split_words_button = QPushButton("Auto split words", self)
+        self._auto_split_words_button = QPushButton(self.tr("Tự tách từng từ"), self)
         self._auto_split_words_button.clicked.connect(self._on_auto_split_words)
         self._form.addRow("", self._auto_split_words_button)
 
@@ -303,7 +303,7 @@ class TextInspector(ClipInspectorBase):
             return
 
         initial = QColor(self._highlight_color_edit.text() or clip.highlight_color or "#ffd166")
-        color = QColorDialog.getColor(initial, self, "Select highlight color")
+        color = QColorDialog.getColor(initial, self, self.tr("Chọn màu đánh dấu"))
         if not color.isValid():
             return
 
