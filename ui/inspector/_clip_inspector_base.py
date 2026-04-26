@@ -14,7 +14,7 @@ class ClipInspectorBase(CommandAwareInspector):
 
         self._name_edit = QLineEdit(self)
         self._name_edit.editingFinished.connect(self._commit_name)
-        self._form.addRow("Clip Name", self._name_edit)
+        self._form.addRow(self.tr("Tên clip"), self._name_edit)
 
         self._start_spin = QDoubleSpinBox(self)
         self._start_spin.setRange(0.0, 100000.0)
@@ -22,7 +22,7 @@ class ClipInspectorBase(CommandAwareInspector):
         self._start_spin.setSingleStep(0.1)
         self._start_spin.setKeyboardTracking(False)
         self._start_spin.editingFinished.connect(self._commit_timing)
-        self._form.addRow("Timeline Start", self._start_spin)
+        self._form.addRow(self.tr("Điểm bắt đầu"), self._start_spin)
 
         self._duration_spin = QDoubleSpinBox(self)
         self._duration_spin.setRange(0.001, 100000.0)
@@ -30,7 +30,7 @@ class ClipInspectorBase(CommandAwareInspector):
         self._duration_spin.setSingleStep(0.1)
         self._duration_spin.setKeyboardTracking(False)
         self._duration_spin.editingFinished.connect(self._commit_timing)
-        self._form.addRow("Duration", self._duration_spin)
+        self._form.addRow(self.tr("Thời lượng"), self._duration_spin)
 
         self._opacity_spin = QDoubleSpinBox(self)
         self._opacity_spin.setRange(0.0, 1.0)
@@ -38,7 +38,7 @@ class ClipInspectorBase(CommandAwareInspector):
         self._opacity_spin.setSingleStep(0.05)
         self._opacity_spin.setKeyboardTracking(False)
         self._opacity_spin.editingFinished.connect(self._commit_common_flags)
-        self._form.addRow("Opacity", self._opacity_spin)
+        self._form.addRow(self.tr("Độ đục"), self._opacity_spin)
 
         self._fade_in_spin = QDoubleSpinBox(self)
         self._fade_in_spin.setRange(0.0, 100000.0)
@@ -46,7 +46,7 @@ class ClipInspectorBase(CommandAwareInspector):
         self._fade_in_spin.setSingleStep(0.05)
         self._fade_in_spin.setKeyboardTracking(False)
         self._fade_in_spin.editingFinished.connect(self._commit_common_flags)
-        self._form.addRow("Fade In (s)", self._fade_in_spin)
+        self._form.addRow(self.tr("Mờ vào (giây)"), self._fade_in_spin)
 
         self._fade_out_spin = QDoubleSpinBox(self)
         self._fade_out_spin.setRange(0.0, 100000.0)
@@ -54,13 +54,13 @@ class ClipInspectorBase(CommandAwareInspector):
         self._fade_out_spin.setSingleStep(0.05)
         self._fade_out_spin.setKeyboardTracking(False)
         self._fade_out_spin.editingFinished.connect(self._commit_common_flags)
-        self._form.addRow("Fade Out (s)", self._fade_out_spin)
+        self._form.addRow(self.tr("Mờ ra (giây)"), self._fade_out_spin)
 
-        self._locked_check = QCheckBox("Locked", self)
+        self._locked_check = QCheckBox(self.tr("Khóa"), self)
         self._locked_check.toggled.connect(self._commit_common_flags)
         self._form.addRow("", self._locked_check)
 
-        self._muted_check = QCheckBox("Muted", self)
+        self._muted_check = QCheckBox(self.tr("Tắt tiếng"), self)
         self._muted_check.toggled.connect(self._commit_common_flags)
         self._form.addRow("", self._muted_check)
 

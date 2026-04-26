@@ -8,7 +8,7 @@ from app.domain.clips.text_clip import TextClip
 from app.domain.clips.video_clip import VideoClip
 from app.domain.media_asset import MediaAsset
 from app.domain.project import Project
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QCoreApplication, Qt
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 
@@ -23,7 +23,7 @@ class DetailsInspector(QWidget):
         layout.setContentsMargins(12, 10, 12, 10)
         layout.setSpacing(0)
 
-        title = QLabel("Chi tiết", self)
+        title = QLabel(self.tr("Chi tiết"), self)
         title.setObjectName("details_title")
         layout.addWidget(title)
 
@@ -55,47 +55,47 @@ class DetailsInspector(QWidget):
         if project is not None:
             self._populate_project(project)
             return
-        self._add_row("Status", "No project loaded")
+        self._add_row(self.tr("Trạng thái"), self.tr("Chưa mở dự án"))
 
     def _populate_project(self, project: Project) -> None:
-        self._add_row("Project", project.name or "Untitled")
-        self._add_row("Resolution", f"{project.width} x {project.height}")
-        self._add_row("FPS", f"{project.fps:g}")
-        self._add_row("Duration", _format_duration(project.timeline.total_duration()))
-        self._add_row("Tracks", str(len(project.timeline.tracks)))
-        self._add_row("Media", str(len(project.media_items)))
+        self._add_row(self.tr("Dự án"), project.name or self.tr("Không có tiêu đề"))
+        self._add_row(self.tr("Độ phân giải"), f"{project.width} x {project.height}")
+        self._add_row(self.tr("FPS"), f"{project.fps:g}")
+        self._add_row(self.tr("Thời lượng"), _format_duration(project.timeline.total_duration()))
+        self._add_row(self.tr("Số track"), str(len(project.timeline.tracks)))
+        self._add_row(self.tr("Phương tiện"), str(len(project.media_items)))
 
     def _populate_clip(self, clip: BaseClip, project: Project | None) -> None:
-        self._add_row("Name", clip.name or "-")
-        self._add_row("Type", _clip_type_label(clip))
-        self._add_row("Timeline start", _format_duration(clip.timeline_start))
-        self._add_row("Clip duration", _format_duration(clip.duration))
+        self._add_row(self.tr("Tên"), clip.name or "-")
+        self._add_row(self.tr("Loại"), _clip_type_label(clip))
+        self._add_row(self.tr("Điểm bắt đầu"), _format_duration(clip.timeline_start))
+        self._add_row(self.tr("Thời lượng clip"), _format_duration(clip.duration))
 
         asset = self._media_asset_for_clip(clip, project)
         if asset is not None:
-            self._add_row("Path", asset.file_path)
+            self._add_row(self.tr("Đường dẫn"), asset.file_path)
             if asset.width is not None and asset.height is not None:
-                self._add_row("Resolution", f"{asset.width} x {asset.height}")
+                self._add_row(self.tr("Độ phân giải"), f"{asset.width} x {asset.height}")
             if asset.fps is not None:
-                self._add_row("FPS", f"{asset.fps:.2f}")
+                self._add_row(self.tr("FPS"), f"{asset.fps:.2f}")
             if asset.video_codec:
-                self._add_row("Video codec", asset.video_codec)
+                self._add_row(self.tr("Codec video"), asset.video_codec)
             if asset.audio_codec:
-                self._add_row("Audio codec", asset.audio_codec)
+                self._add_row(self.tr("Codec âm thanh"), asset.audio_codec)
             if asset.sample_rate is not None:
-                self._add_row("Sample rate", f"{asset.sample_rate} Hz")
+                self._add_row(self.tr("Tần số mẫu"), f"{asset.sample_rate} Hz")
             if asset.duration_seconds is not None:
-                self._add_row("Source duration", _format_duration(asset.duration_seconds))
+                self._add_row(self.tr("Thời lượng nguồn"), _format_duration(asset.duration_seconds))
             if asset.file_size_bytes is not None:
-                self._add_row("Size", _format_file_size(asset.file_size_bytes))
+                self._add_row(self.tr("Kích thước"), _format_file_size(asset.file_size_bytes))
                 bitrate = _estimate_bitrate(asset.file_size_bytes, asset.duration_seconds)
                 if bitrate is not None:
-                    self._add_row("Bitrate", bitrate)
+                    self._add_row(self.tr("Bitrate"), bitrate)
 
         if isinstance(clip, TextClip):
-            self._add_row("Content", (clip.content or "").strip() or "-")
-            self._add_row("Font size", str(clip.font_size))
-            self._add_row("Color", clip.color)
+            self._add_row(self.tr("Nội dung"), (clip.content or "").strip() or "-")
+            self._add_row(self.tr("Cỡ chữ"), str(clip.font_size))
+            self._add_row(self.tr("Màu sắc"), clip.color)
 
     def _media_asset_for_clip(self, clip: BaseClip, project: Project | None) -> MediaAsset | None:
         if project is None:
@@ -153,14 +153,15 @@ class DetailsInspector(QWidget):
 
 
 def _clip_type_label(clip: BaseClip) -> str:
+    translate = QCoreApplication.translate
     if isinstance(clip, VideoClip):
-        return "Video"
+        return translate("DetailsInspector", "Video")
     if isinstance(clip, AudioClip):
-        return "Audio"
+        return translate("DetailsInspector", "Âm thanh")
     if isinstance(clip, ImageClip):
-        return "Image"
+        return translate("DetailsInspector", "Hình ảnh")
     if isinstance(clip, TextClip):
-        return "Text"
+        return translate("DetailsInspector", "Văn bản")
     return clip.__class__.__name__
 
 

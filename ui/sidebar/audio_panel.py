@@ -21,8 +21,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-_AUDIO_FILTER = "Audio Files (*.mp3 *.wav *.m4a *.aac *.flac *.ogg *.opus);;All Files (*.*)"
 _AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus"}
+
+
+def _audio_file_filter(widget: QWidget) -> str:
+    return widget.tr("Tệp âm thanh (*.mp3 *.wav *.m4a *.aac *.flac *.ogg *.opus);;Tất cả tệp (*.*)")
 
 
 class AudioPanel(QWidget):
@@ -44,11 +47,11 @@ class AudioPanel(QWidget):
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
 
-        header = QLabel("Audio", self)
+        header = QLabel(self.tr("Âm thanh"), self)
         header.setStyleSheet("font-weight: 600; color: #e6edf3; padding: 2px 0;")
         layout.addWidget(header)
 
-        self.import_button = QPushButton("Import Audio...", self)
+        self.import_button = QPushButton(self.tr("Nhập âm thanh..."), self)
         self.import_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.import_button.clicked.connect(self._on_import_clicked)
         layout.addWidget(self.import_button)
@@ -65,7 +68,12 @@ class AudioPanel(QWidget):
         self._refresh_media_items()
 
     def _on_import_clicked(self) -> None:
-        selected_paths, _ = QFileDialog.getOpenFileNames(self, "Import Audio Files", "", _AUDIO_FILTER)
+        selected_paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            self.tr("Nhập tệp âm thanh"),
+            "",
+            _audio_file_filter(self),
+        )
         if not selected_paths:
             return
         self._project_controller.import_media_files(selected_paths)
@@ -96,7 +104,7 @@ class AudioPanel(QWidget):
         if has_items:
             return
 
-        placeholder = QListWidgetItem("No audio imported", self.media_list)
+        placeholder = QListWidgetItem(self.tr("Chưa nhập âm thanh"), self.media_list)
         placeholder.setFlags(Qt.ItemFlag.NoItemFlags)
         placeholder.setForeground(Qt.GlobalColor.gray)
 
@@ -120,15 +128,15 @@ class AudioPanel(QWidget):
             return
 
         menu = QMenu(self.media_list)
-        reveal_action = QAction("Reveal in Folder", menu)
-        copy_path_action = QAction("Copy File Path", menu)
+        reveal_action = QAction(self.tr("Hiện trong thư mục"), menu)
+        copy_path_action = QAction(self.tr("Sao chép đường dẫn tệp"), menu)
         menu.addAction(reveal_action)
         menu.addAction(copy_path_action)
 
         remove_action: QAction | None = None
         if self._timeline_controller is not None:
             menu.addSeparator()
-            remove_action = QAction("Remove from Project", menu)
+            remove_action = QAction(self.tr("Xóa khỏi project"), menu)
             menu.addAction(remove_action)
 
         triggered = menu.exec(self.media_list.viewport().mapToGlobal(position))
@@ -178,15 +186,15 @@ class AudioPanel(QWidget):
         clip_count = len(timeline_controller.clips_using_media(media_asset.media_id))
         display_name = media_asset.name or Path(media_asset.file_path).name
         if clip_count > 0:
-            message = (
-                f"Có {clip_count} clip đang dùng \"{display_name}\". "
-                "Xóa asset sẽ xóa luôn các clip này (có thể Undo). Tiếp tục?"
-            )
+            message = self.tr(
+                'Có {count} clip đang dùng "{name}". Xóa asset sẽ xóa luôn các clip này '
+                "(có thể Undo). Tiếp tục?"
+            ).format(count=clip_count, name=display_name)
         else:
-            message = f"Xóa \"{display_name}\" khỏi project?"
+            message = self.tr('Xóa "{name}" khỏi project?').format(name=display_name)
         reply = QMessageBox.question(
             self,
-            "Xóa khỏi project",
+            self.tr("Xóa khỏi project"),
             message,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,

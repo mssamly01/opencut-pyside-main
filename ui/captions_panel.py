@@ -38,23 +38,23 @@ class CaptionsPanel(QWidget):
         button_row = QHBoxLayout()
         button_row.setSpacing(4)
 
-        self._split_button = QPushButton("Split", self)
-        self._split_button.setToolTip("Split selected caption at playhead")
+        self._split_button = QPushButton(self.tr("Tách"), self)
+        self._split_button.setToolTip(self.tr("Tách phụ đề đang chọn tại đầu phát"))
         self._split_button.clicked.connect(self._on_split_clicked)
         button_row.addWidget(self._split_button)
 
-        self._merge_button = QPushButton("Merge", self)
-        self._merge_button.setToolTip("Merge selected caption with the next one")
+        self._merge_button = QPushButton(self.tr("Gộp"), self)
+        self._merge_button.setToolTip(self.tr("Gộp phụ đề đang chọn với phụ đề tiếp theo"))
         self._merge_button.clicked.connect(self._on_merge_clicked)
         button_row.addWidget(self._merge_button)
 
-        self._duplicate_button = QPushButton("Duplicate", self)
-        self._duplicate_button.setToolTip("Duplicate selected caption after itself")
+        self._duplicate_button = QPushButton(self.tr("Nhân bản"), self)
+        self._duplicate_button.setToolTip(self.tr("Nhân bản phụ đề đang chọn vào ngay sau"))
         self._duplicate_button.clicked.connect(self._on_duplicate_clicked)
         button_row.addWidget(self._duplicate_button)
 
-        self._delete_button = QPushButton("Delete", self)
-        self._delete_button.setToolTip("Delete selected caption")
+        self._delete_button = QPushButton(self.tr("Xóa"), self)
+        self._delete_button.setToolTip(self.tr("Xóa phụ đề đang chọn"))
         self._delete_button.clicked.connect(self._on_delete_clicked)
         button_row.addWidget(self._delete_button)
 
@@ -133,14 +133,14 @@ class CaptionsPanel(QWidget):
         if playhead <= clip.timeline_start or playhead >= clip.timeline_start + clip.duration:
             QMessageBox.information(
                 self,
-                "Split Caption",
-                "Move playhead inside the selected caption before splitting.",
+                self.tr("Tách phụ đề"),
+                self.tr("Di chuyển đầu phát vào bên trong phụ đề đang chọn trước khi tách."),
             )
             return
         try:
             self._app_controller.timeline_controller.split_clip(clip_id, playhead)
         except ValueError as exc:
-            QMessageBox.warning(self, "Split Caption Failed", str(exc))
+            QMessageBox.warning(self, self.tr("Tách phụ đề thất bại"), str(exc))
 
     def _on_merge_clicked(self) -> None:
         clip_id = self._current_clip_id()
@@ -150,8 +150,8 @@ class CaptionsPanel(QWidget):
         if not did_merge:
             QMessageBox.information(
                 self,
-                "Merge Caption",
-                "No following caption on the same text track to merge with.",
+                self.tr("Gộp phụ đề"),
+                self.tr("Không có phụ đề tiếp theo trên cùng track văn bản để gộp."),
             )
 
     def _on_duplicate_clicked(self) -> None:

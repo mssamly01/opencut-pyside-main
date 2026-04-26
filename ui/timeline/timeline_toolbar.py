@@ -31,55 +31,55 @@ class TimelineToolbar(QWidget):
         layout.setSpacing(4)
 
         # Left cluster: editing actions.
-        self._undo_button = self._create_icon_button("undo", "Undo (Ctrl+Z)")
+        self._undo_button = self._create_icon_button("undo", self.tr("Hoàn tác (Ctrl+Z)"))
         self._undo_button.clicked.connect(self._timeline_controller.undo)
         layout.addWidget(self._undo_button)
 
-        self._redo_button = self._create_icon_button("redo", "Redo (Ctrl+Y)")
+        self._redo_button = self._create_icon_button("redo", self.tr("Làm lại (Ctrl+Y)"))
         self._redo_button.clicked.connect(self._timeline_controller.redo)
         layout.addWidget(self._redo_button)
         layout.addWidget(self._create_separator())
 
         self._add_track_button = QToolButton(self)
-        self._add_track_button.setText("+ Track")
+        self._add_track_button.setText(self.tr("+ Track"))
         self._add_track_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         add_track_menu = QMenu(self._add_track_button)
-        add_track_menu.addAction("Video Track", lambda: self._add_track("video"))
-        add_track_menu.addAction("Audio Track", lambda: self._add_track("audio"))
-        add_track_menu.addAction("Text Track", lambda: self._add_track("text"))
+        add_track_menu.addAction(self.tr("Track Video"), lambda: self._add_track("video"))
+        add_track_menu.addAction(self.tr("Track Âm thanh"), lambda: self._add_track("audio"))
+        add_track_menu.addAction(self.tr("Track Văn bản"), lambda: self._add_track("text"))
         self._add_track_button.setMenu(add_track_menu)
         layout.addWidget(self._add_track_button)
         layout.addWidget(self._create_separator())
 
-        self._split_button = self._create_icon_button("split", "Split (S)")
+        self._split_button = self._create_icon_button("split", self.tr("Tách (S)"))
         self._split_button.clicked.connect(self._on_split)
         layout.addWidget(self._split_button)
 
-        self._duplicate_button = self._create_icon_button("duplicate", "Duplicate (Ctrl+D)")
+        self._duplicate_button = self._create_icon_button("duplicate", self.tr("Nhân bản (Ctrl+D)"))
         self._duplicate_button.clicked.connect(self._on_duplicate)
         layout.addWidget(self._duplicate_button)
 
-        self._delete_button = self._create_icon_button("delete", "Delete (Delete)")
+        self._delete_button = self._create_icon_button("delete", self.tr("Xóa (Delete)"))
         self._delete_button.clicked.connect(self._on_delete)
         layout.addWidget(self._delete_button)
 
         layout.addStretch(1)
 
         # Right cluster: timeline behavior + zoom controls.
-        self._snap_checkbox = QCheckBox("Snap", self)
+        self._snap_checkbox = QCheckBox(self.tr("Hút"), self)
         self._snap_checkbox.toggled.connect(self._on_snap_toggled)
         layout.addWidget(self._snap_checkbox)
 
-        self._ripple_checkbox = QCheckBox("Ripple", self)
+        self._ripple_checkbox = QCheckBox(self.tr("Ripple"), self)
         self._ripple_checkbox.toggled.connect(self._on_ripple_toggled)
         layout.addWidget(self._ripple_checkbox)
 
-        self._playhead_sticky_checkbox = QCheckBox("Playhead Sticky", self)
+        self._playhead_sticky_checkbox = QCheckBox(self.tr("Dính đầu phát"), self)
         self._playhead_sticky_checkbox.toggled.connect(self._on_playhead_sticky_toggled)
         layout.addWidget(self._playhead_sticky_checkbox)
         layout.addWidget(self._create_separator())
 
-        self._zoom_label = QLabel("Zoom", self)
+        self._zoom_label = QLabel(self.tr("Thu phóng"), self)
         layout.addWidget(self._zoom_label)
 
         self._zoom_slider = QSlider(Qt.Orientation.Horizontal, self)
@@ -89,7 +89,7 @@ class TimelineToolbar(QWidget):
         layout.addWidget(self._zoom_slider)
 
         self._fit_button = QToolButton(self)
-        self._fit_button.setText("Fit")
+        self._fit_button.setText(self.tr("Vừa khít"))
         self._fit_button.clicked.connect(self._timeline_view.fit_timeline)
         layout.addWidget(self._fit_button)
 
