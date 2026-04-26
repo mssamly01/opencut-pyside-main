@@ -529,6 +529,30 @@ class ExportService:
         return command
 
     @staticmethod
+    def _color_adjust_filters_for_clip(clip: BaseClip) -> list[str]:
+        if not isinstance(clip, (VideoClip, ImageClip)):
+            return []
+
+        brightness = float(getattr(clip, "brightness", 0.0))
+        contrast = float(getattr(clip, "contrast", 1.0))
+        saturation = float(getattr(clip, "saturation", 1.0))
+        hue = float(getattr(clip, "hue", 0.0))
+
+        filters: list[str] = []
+        eq_parts: list[str] = []
+        if abs(brightness) > 1e-6:
+            eq_parts.append(f"brightness={brightness:.6f}")
+        if abs(contrast - 1.0) > 1e-6:
+            eq_parts.append(f"contrast={contrast:.6f}")
+        if abs(saturation - 1.0) > 1e-6:
+            eq_parts.append(f"saturation={saturation:.6f}")
+        if eq_parts:
+            filters.append("eq=" + ":".join(eq_parts))
+        if abs(hue) > 1e-6:
+            filters.append(f"hue=h={hue:.6f}")
+        return filters
+
+    @staticmethod
     def _transform_adjust_filters_for_clip(clip: BaseClip, project: Project) -> list[str]:
         if not isinstance(clip, (VideoClip, ImageClip)):
             return []
@@ -627,6 +651,7 @@ class ExportService:
             ]
         )
         video_filters.extend(self._transform_adjust_filters_for_clip(clip_source.clip, project))
+        video_filters.extend(self._color_adjust_filters_for_clip(clip_source.clip))
         video_filters.extend(
             [
                 f"fps={fps:.6f}",

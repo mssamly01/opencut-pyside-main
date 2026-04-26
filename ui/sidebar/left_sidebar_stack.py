@@ -6,6 +6,7 @@ from app.ui.media_panel.media_panel import MediaPanel
 from app.ui.sidebar.audio_panel import AudioPanel
 from app.ui.sidebar.effects_panel import EffectsPanel
 from app.ui.sidebar.left_rail import RAIL_CATEGORIES
+from app.ui.sidebar.transitions_panel import TransitionsPanel
 from PySide6.QtWidgets import QStackedWidget
 
 
@@ -27,8 +28,8 @@ class LeftSidebarStack(QStackedWidget):
             timeline_controller=app_controller.timeline_controller,
             parent=self,
         )
-        self.effects_panel = EffectsPanel(self)
-        self.transitions_panel = EffectsPanel(self)
+        self.effects_panel = EffectsPanel(app_controller, self)
+        self.transitions_panel = TransitionsPanel(self)
         self.captions_panel = CaptionsPanel(app_controller, self)
         self._key_to_index: dict[str, int] = {}
         self._panel_by_key = {
