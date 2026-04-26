@@ -9,8 +9,8 @@ from app.ui.app_shell import AppShell
 from app.ui.dialogs.export_dialog import ExportDialog
 from app.ui.shared.icons import build_icon
 from app.ui.top_bar import TopBar
-from PySide6.QtCore import QTimer, QUrl
-from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QKeySequence
+from PySide6.QtCore import QEvent, QPoint, Qt, QTimer, QUrl
+from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QKeySequence, QMouseEvent
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -37,8 +37,17 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(self.tr("OpenCut PySide"))
         self.resize(1440, 860)
 
+        # Sprint 16-B: frameless window with custom title-bar chrome.
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+        self.setMouseTracking(True)
+
         self._top_bar = TopBar(self)
         self._top_bar.export_requested.connect(self._on_export_project_triggered)
+        self._top_bar.minimize_requested.connect(self.showMinimized)
+        self._top_bar.maximize_toggle_requested.connect(self._toggle_maximized)
+        self._top_bar.maximize_toggle_via_doubleclick_requested.connect(self._toggle_maximized)
+        self._top_bar.close_requested.connect(self.close)
+        self._top_bar.drag_started.connect(self._start_system_move)
         self._app_shell = AppShell(app_controller=self._app_controller)
         central = QWidget(self)
         central_layout = QVBoxLayout(central)
@@ -658,6 +667,75 @@ class MainWindow(QMainWindow):
             return
 
         event.accept()
+
+    # Sprint 16-B: frameless window helpers ---------------------------------
+
+    _RESIZE_BORDER = 4
+
+    def _toggle_maximized(self) -> None:
+        if self.isMaximized():
+            self.showNormal()
+        else:
+            self.showMaximized()
+
+    def _start_system_move(self) -> None:
+        handle = self.windowHandle()
+        if handle is not None and not self.isMaximized():
+            handle.startSystemMove()
+
+    def _resize_edges_at(self, pos: QPoint) -> Qt.Edges | None:
+        if self.isMaximized() or self.isFullScreen():
+            return None
+        margin = self._RESIZE_BORDER
+        rect = self.rect()
+        edges = Qt.Edges()
+        if pos.x() <= margin:
+            edges |= Qt.Edge.LeftEdge
+        elif pos.x() >= rect.width() - margin:
+            edges |= Qt.Edge.RightEdge
+        if pos.y() <= margin:
+            edges |= Qt.Edge.TopEdge
+        elif pos.y() >= rect.height() - margin:
+            edges |= Qt.Edge.BottomEdge
+        return edges if edges else None
+
+    def _cursor_for_edges(self, edges: Qt.Edges) -> Qt.CursorShape:
+        left = bool(edges & Qt.Edge.LeftEdge)
+        right = bool(edges & Qt.Edge.RightEdge)
+        top = bool(edges & Qt.Edge.TopEdge)
+        bottom = bool(edges & Qt.Edge.BottomEdge)
+        if (top and left) or (bottom and right):
+            return Qt.CursorShape.SizeFDiagCursor
+        if (top and right) or (bottom and left):
+            return Qt.CursorShape.SizeBDiagCursor
+        if left or right:
+            return Qt.CursorShape.SizeHorCursor
+        return Qt.CursorShape.SizeVerCursor
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if not (event.buttons() & Qt.MouseButton.LeftButton):
+            edges = self._resize_edges_at(event.position().toPoint())
+            if edges is None:
+                self.unsetCursor()
+            else:
+                self.setCursor(self._cursor_for_edges(edges))
+        super().mouseMoveEvent(event)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            edges = self._resize_edges_at(event.position().toPoint())
+            if edges is not None:
+                handle = self.windowHandle()
+                if handle is not None:
+                    handle.startSystemResize(edges)
+                    event.accept()
+                    return
+        super().mousePressEvent(event)
+
+    def changeEvent(self, event: QEvent) -> None:
+        if event.type() == QEvent.Type.WindowStateChange and self._top_bar is not None:
+            self._top_bar.set_maximized_state(self.isMaximized())
+        super().changeEvent(event)
 
     def _confirm_discard_unsaved_changes(self, action_description: str) -> bool:
         if not self._app_controller.has_unsaved_changes():
