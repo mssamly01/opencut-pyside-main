@@ -550,6 +550,17 @@ class ExportService:
             filters.append("eq=" + ":".join(eq_parts))
         if abs(hue) > 1e-6:
             filters.append(f"hue=h={hue:.6f}")
+
+        lut_path = str(getattr(clip, "lut_path", "") or "")
+        if lut_path:
+            from app.services.lut_service import resolve_lut_path
+
+            resolved = resolve_lut_path(lut_path)
+            if resolved is not None:
+                # ffmpeg requires single-quoted, backslash-escaped paths inside
+                # filter args; lut3d also expects forward slashes on Windows.
+                escaped = str(resolved).replace("\\", "/").replace("'", r"\'")
+                filters.append(f"lut3d=file='{escaped}':interp=tetrahedral")
         return filters
 
     @staticmethod

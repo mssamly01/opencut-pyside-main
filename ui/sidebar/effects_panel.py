@@ -6,11 +6,21 @@ from app.domain.clips.image_clip import ImageClip
 from app.domain.clips.video_clip import VideoClip
 from app.domain.commands import CompositeCommand, UpdatePropertyCommand
 from app.domain.project import Project
-from PySide6.QtCore import Qt
+from app.services.lut_service import (
+    PRESET_ID_PREFIX,
+    PRESETS,
+    display_label_for_path,
+    is_valid_cube_file,
+)
+from PySide6.QtCore import QCoreApplication, Qt
 from PySide6.QtWidgets import (
+    QComboBox,
+    QFileDialog,
     QFormLayout,
+    QFrame,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QSlider,
     QVBoxLayout,
@@ -42,6 +52,18 @@ def _attr_to_slider(name: str, attr_value: float) -> int:
 
 def _default_attr(name: str) -> float:
     return _SLIDER_RANGES[name][3]
+
+
+def _translate_preset_name(preset_id: str) -> str:
+    """Translate a preset display name. Source strings are literal so
+    pyside6-lupdate can extract them; the runtime map dispatches by preset id."""
+    if preset_id == "preset:cinematic":
+        return QCoreApplication.translate("EffectsPanel", "Điện ảnh")
+    if preset_id == "preset:vintage":
+        return QCoreApplication.translate("EffectsPanel", "Hoài cổ")
+    if preset_id == "preset:black_and_white":
+        return QCoreApplication.translate("EffectsPanel", "Đen trắng")
+    return preset_id
 
 
 class EffectsPanel(QWidget):
@@ -97,6 +119,29 @@ class EffectsPanel(QWidget):
         self._reset_button.clicked.connect(self._on_reset_clicked)
         layout.addWidget(self._reset_button)
 
+        # --- LUT section --------------------------------------------------
+        separator = QFrame(self)
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        layout.addWidget(separator)
+
+        self._lut_title = QLabel(self.tr("LUT 3D"), self)
+        self._lut_title.setStyleSheet("font-weight: 600;")
+        layout.addWidget(self._lut_title)
+
+        self._lut_combo = QComboBox(self)
+        self._lut_combo.addItem(self.tr("Không dùng LUT"), userData="")
+        for preset in PRESETS:
+            self._lut_combo.addItem(_translate_preset_name(preset.preset_id), userData=preset.preset_id)
+        self._lut_combo.addItem(self.tr("Tệp LUT tuỳ chỉnh…"), userData="__custom__")
+        self._lut_combo.activated.connect(self._on_lut_combo_activated)
+        layout.addWidget(self._lut_combo)
+
+        self._lut_status = QLabel("", self)
+        self._lut_status.setStyleSheet("color: #7a8794;")
+        self._lut_status.setWordWrap(True)
+        layout.addWidget(self._lut_status)
+
         layout.addStretch(1)
 
         app_controller.selection_controller.selection_changed.connect(self._refresh_from_selection)
@@ -131,12 +176,15 @@ class EffectsPanel(QWidget):
         for slider in self._sliders.values():
             slider.setEnabled(enabled)
         self._reset_button.setEnabled(enabled)
+        self._lut_combo.setEnabled(enabled)
         if clip is None:
             for name, slider in self._sliders.items():
                 slider.blockSignals(True)
                 slider.setValue(_attr_to_slider(name, _default_attr(name)))
                 slider.blockSignals(False)
                 self._value_labels[name].setText("")
+            self._sync_lut_combo("")
+            self._lut_status.setText("")
             return
         for name, slider in self._sliders.items():
             attr_value = float(getattr(clip, name))
@@ -144,6 +192,7 @@ class EffectsPanel(QWidget):
             slider.setValue(_attr_to_slider(name, attr_value))
             slider.blockSignals(False)
             self._update_value_label(name, attr_value)
+        self._sync_lut_combo(str(getattr(clip, "lut_path", "") or ""))
 
     def _resolve_selected_clip(self) -> VideoClip | ImageClip | None:
         project: Project | None = self._app_controller.project_controller.active_project()
@@ -217,6 +266,11 @@ class EffectsPanel(QWidget):
                 sub_commands.append(
                     UpdatePropertyCommand(target=clip, attribute_name=name, new_value=default)
                 )
+        current_lut = str(getattr(clip, "lut_path", "") or "")
+        if current_lut:
+            sub_commands.append(
+                UpdatePropertyCommand(target=clip, attribute_name="lut_path", new_value="")
+            )
         if sub_commands:
             self._app_controller.timeline_controller.execute_command(
                 CompositeCommand(sub_commands)
@@ -234,10 +288,87 @@ class EffectsPanel(QWidget):
         else:
             label.setText(f"{attr_value:.2f}")
 
+    # --- LUT handlers -----------------------------------------------------
+
+    def _sync_lut_combo(self, lut_path: str) -> None:
+        """Match combo selection + status label to the clip's stored lut_path."""
+        self._lut_combo.blockSignals(True)
+        try:
+            target_index = 0  # "Không dùng LUT"
+            if lut_path:
+                if lut_path.startswith(PRESET_ID_PREFIX):
+                    for i in range(self._lut_combo.count()):
+                        if self._lut_combo.itemData(i) == lut_path:
+                            target_index = i
+                            break
+                else:
+                    # Custom file path: select the "custom" sentinel entry.
+                    for i in range(self._lut_combo.count()):
+                        if self._lut_combo.itemData(i) == "__custom__":
+                            target_index = i
+                            break
+            self._lut_combo.setCurrentIndex(target_index)
+        finally:
+            self._lut_combo.blockSignals(False)
+        if not lut_path:
+            self._lut_status.setText("")
+        else:
+            self._lut_status.setText(self.tr("Đang dùng: {label}").format(label=display_label_for_path(lut_path)))
+
+    def _on_lut_combo_activated(self, index: int) -> None:
+        clip = self._current_clip
+        if clip is None:
+            return
+        data = self._lut_combo.itemData(index)
+        if data == "__custom__":
+            self._prompt_for_custom_lut()
+            return
+        new_value = "" if data is None else str(data)
+        self._apply_lut_path(new_value)
+
+    def _prompt_for_custom_lut(self) -> None:
+        clip = self._current_clip
+        if clip is None:
+            return
+        path, _filter = QFileDialog.getOpenFileName(
+            self,
+            self.tr("Chọn tệp LUT (.cube)"),
+            "",
+            self.tr("Tệp LUT (*.cube)"),
+        )
+        if not path:
+            # User cancelled: re-sync combo to the current clip state so the
+            # transient "Tệp LUT tuỳ chỉnh…" selection does not stick.
+            self._sync_lut_combo(str(getattr(clip, "lut_path", "") or ""))
+            return
+        if not is_valid_cube_file(path):
+            QMessageBox.warning(
+                self,
+                self.tr("Tệp LUT không hợp lệ"),
+                self.tr("Tệp được chọn không phải tệp .cube hợp lệ (thiếu LUT_3D_SIZE)."),
+            )
+            self._sync_lut_combo(str(getattr(clip, "lut_path", "") or ""))
+            return
+        self._apply_lut_path(path)
+
+    def _apply_lut_path(self, new_value: str) -> None:
+        clip = self._current_clip
+        if clip is None:
+            return
+        old_value = str(getattr(clip, "lut_path", "") or "")
+        if new_value == old_value:
+            return
+        self._app_controller.timeline_controller.execute_command(
+            UpdatePropertyCommand(target=clip, attribute_name="lut_path", new_value=new_value)
+        )
+
     # --- accessors for tests ----------------------------------------------
 
     def slider_for(self, name: str) -> QSlider:
         return self._sliders[name]
+
+    def lut_combo(self) -> QComboBox:
+        return self._lut_combo
 
     @staticmethod
     def supported_clip(clip: BaseClip) -> bool:

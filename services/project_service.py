@@ -244,6 +244,7 @@ class ProjectService:
             payload["contrast"] = clip.contrast
             payload["saturation"] = clip.saturation
             payload["hue"] = clip.hue
+            payload["lut_path"] = clip.lut_path
             payload["position_x_keyframes"] = self._keyframes_to_dict(clip.position_x_keyframes)
             payload["position_y_keyframes"] = self._keyframes_to_dict(clip.position_y_keyframes)
             payload["scale_keyframes"] = self._keyframes_to_dict(clip.scale_keyframes)
@@ -262,6 +263,7 @@ class ProjectService:
             payload["contrast"] = clip.contrast
             payload["saturation"] = clip.saturation
             payload["hue"] = clip.hue
+            payload["lut_path"] = clip.lut_path
             payload["position_x_keyframes"] = self._keyframes_to_dict(clip.position_x_keyframes)
             payload["position_y_keyframes"] = self._keyframes_to_dict(clip.position_y_keyframes)
             payload["scale_keyframes"] = self._keyframes_to_dict(clip.scale_keyframes)
@@ -339,6 +341,7 @@ class ProjectService:
                 contrast=self._read_float(payload, "contrast", default=1.0),
                 saturation=self._read_float(payload, "saturation", default=1.0),
                 hue=self._read_float(payload, "hue", default=0.0),
+                lut_path=self._read_str(payload, "lut_path", default=""),
                 position_x_keyframes=self._keyframes_from_payload(payload.get("position_x_keyframes")),
                 position_y_keyframes=self._keyframes_from_payload(payload.get("position_y_keyframes")),
                 scale_keyframes=self._keyframes_from_payload(payload.get("scale_keyframes")),
@@ -363,6 +366,7 @@ class ProjectService:
                 contrast=self._read_float(payload, "contrast", default=1.0),
                 saturation=self._read_float(payload, "saturation", default=1.0),
                 hue=self._read_float(payload, "hue", default=0.0),
+                lut_path=self._read_str(payload, "lut_path", default=""),
                 position_x_keyframes=self._keyframes_from_payload(payload.get("position_x_keyframes")),
                 position_y_keyframes=self._keyframes_from_payload(payload.get("position_y_keyframes")),
                 scale_keyframes=self._keyframes_from_payload(payload.get("scale_keyframes")),
