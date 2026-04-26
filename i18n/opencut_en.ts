@@ -407,6 +407,44 @@
     </message>
 </context>
 <context>
+    <name>EffectsPanel</name>
+    <message>
+        <location filename="../ui/sidebar/effects_panel.py" line="60"/>
+        <source>Hiệu ứng màu</source>
+        <translation>Color effects</translation>
+    </message>
+    <message>
+        <location filename="../ui/sidebar/effects_panel.py" line="65"/>
+        <source>Chọn một clip video hoặc ảnh trên dòng thời gian để chỉnh màu.</source>
+        <translation>Select a video or image clip on the timeline to grade its color.</translation>
+    </message>
+    <message>
+        <location filename="../ui/sidebar/effects_panel.py" line="78"/>
+        <source>Độ sáng</source>
+        <translation>Brightness</translation>
+    </message>
+    <message>
+        <location filename="../ui/sidebar/effects_panel.py" line="79"/>
+        <source>Tương phản</source>
+        <translation>Contrast</translation>
+    </message>
+    <message>
+        <location filename="../ui/sidebar/effects_panel.py" line="80"/>
+        <source>Bão hoà</source>
+        <translation>Saturation</translation>
+    </message>
+    <message>
+        <location filename="../ui/sidebar/effects_panel.py" line="81"/>
+        <source>Sắc độ</source>
+        <translation>Hue</translation>
+    </message>
+    <message>
+        <location filename="../ui/sidebar/effects_panel.py" line="96"/>
+        <source>Đặt lại màu</source>
+        <translation>Reset color</translation>
+    </message>
+</context>
+<context>
     <name>ExportDialog</name>
     <message>
         <location filename="../ui/dialogs/export_dialog.py" line="35"/>
@@ -584,407 +622,407 @@
         <translation>OpenCut PySide</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="114"/>
+        <location filename="../ui/main_window.py" line="118"/>
         <source>Xuất MP4...</source>
         <translation>Export MP4...</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="122"/>
+        <location filename="../ui/main_window.py" line="126"/>
         <source>Dự án mới</source>
         <translation>New Project</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="128"/>
+        <location filename="../ui/main_window.py" line="132"/>
         <source>Mở dự án...</source>
         <translation>Open Project...</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="134"/>
+        <location filename="../ui/main_window.py" line="138"/>
         <source>Tải dự án demo</source>
         <translation>Load demo project</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="140"/>
+        <location filename="../ui/main_window.py" line="144"/>
         <source>Lưu</source>
         <translation>Save</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="146"/>
+        <location filename="../ui/main_window.py" line="150"/>
         <source>Lưu thành...</source>
         <translation>Save As...</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="152"/>
+        <location filename="../ui/main_window.py" line="156"/>
         <source>Nhập phương tiện...</source>
         <translation>Import Media...</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="158"/>
+        <location filename="../ui/main_window.py" line="162"/>
         <source>Nhập phụ đề...</source>
         <translation>Import Subtitles...</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="164"/>
+        <location filename="../ui/main_window.py" line="168"/>
         <source>Xuất phụ đề...</source>
         <translation>Export Subtitles...</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="169"/>
+        <location filename="../ui/main_window.py" line="173"/>
         <source>Mở thư mục logs</source>
         <translation>Open log folder</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="172"/>
+        <location filename="../ui/main_window.py" line="176"/>
         <source>Thoát</source>
         <translation>Exit</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="181"/>
+        <location filename="../ui/main_window.py" line="185"/>
         <source>Hoàn tác</source>
         <translation>Undo</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="187"/>
+        <location filename="../ui/main_window.py" line="191"/>
         <source>Làm lại</source>
         <translation>Redo</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="193"/>
+        <location filename="../ui/main_window.py" line="197"/>
         <source>Cắt</source>
         <translation>Cut</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="199"/>
+        <location filename="../ui/main_window.py" line="203"/>
         <source>Sao chép</source>
         <translation>Copy</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="205"/>
+        <location filename="../ui/main_window.py" line="209"/>
         <source>Dán tại đầu phát</source>
         <translation>Paste at playhead</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="209"/>
+        <location filename="../ui/main_window.py" line="213"/>
         <source>Tách tại đầu phát</source>
         <translation>Split at playhead</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="212"/>
+        <location filename="../ui/main_window.py" line="216"/>
         <source>Nhân bản</source>
         <translation>Duplicate</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="218"/>
+        <location filename="../ui/main_window.py" line="222"/>
         <source>Xóa</source>
         <translation>Delete</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="227"/>
+        <location filename="../ui/main_window.py" line="231"/>
         <source>Phóng to dòng thời gian</source>
         <translation>Zoom in timeline</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="233"/>
+        <location filename="../ui/main_window.py" line="237"/>
         <source>Thu nhỏ dòng thời gian</source>
         <translation>Zoom out timeline</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="239"/>
+        <location filename="../ui/main_window.py" line="243"/>
         <source>Vừa khung dòng thời gian</source>
         <translation>Fit timeline</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="248"/>
+        <location filename="../ui/main_window.py" line="252"/>
         <source>Tệp</source>
         <translation>File</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="249"/>
+        <location filename="../ui/main_window.py" line="253"/>
         <source>Chỉnh sửa</source>
         <translation>Edit</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="250"/>
+        <location filename="../ui/main_window.py" line="254"/>
         <source>Xem</source>
         <translation>View</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="257"/>
+        <location filename="../ui/main_window.py" line="261"/>
         <source>Đầu</source>
         <translation>Start</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="260"/>
+        <location filename="../ui/main_window.py" line="264"/>
         <source>Đi tới đầu (Ctrl+Home)</source>
         <translation>Go to start (Ctrl+Home)</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="266"/>
+        <location filename="../ui/main_window.py" line="270"/>
         <source>Khung trước</source>
         <translation>Previous Frame</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="269"/>
+        <location filename="../ui/main_window.py" line="273"/>
         <source>Khung trước (Alt+Left)</source>
         <translation>Previous Frame (Alt+Left)</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="275"/>
+        <location filename="../ui/main_window.py" line="279"/>
         <source>Phát/Tạm dừng</source>
         <translation>Play/Pause</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="278"/>
+        <location filename="../ui/main_window.py" line="282"/>
         <source>Phát/Tạm dừng (Space)</source>
         <translation>Play/Pause (Space)</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="284"/>
+        <location filename="../ui/main_window.py" line="288"/>
         <source>Dừng</source>
         <translation>Stop</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="287"/>
+        <location filename="../ui/main_window.py" line="291"/>
         <source>Dừng (Shift+Space)</source>
         <translation>Stop (Shift+Space)</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="293"/>
+        <location filename="../ui/main_window.py" line="297"/>
         <source>Khung tiếp</source>
         <translation>Next Frame</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="296"/>
+        <location filename="../ui/main_window.py" line="300"/>
         <source>Khung tiếp (Alt+Right)</source>
         <translation>Next Frame (Alt+Right)</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="340"/>
+        <location filename="../ui/main_window.py" line="344"/>
         <source>tạo dự án mới</source>
         <translation>create a new project</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="344"/>
+        <location filename="../ui/main_window.py" line="348"/>
         <source>Đã tạo dự án mới.</source>
         <translation>New project created.</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="347"/>
+        <location filename="../ui/main_window.py" line="351"/>
         <source>tải dự án demo</source>
         <translation>load the demo project</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="351"/>
+        <location filename="../ui/main_window.py" line="355"/>
         <source>Đã tải dự án demo.</source>
         <translation>Demo project loaded.</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="383"/>
+        <location filename="../ui/main_window.py" line="387"/>
         <source>Mở logs</source>
         <translation>Open logs</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="384"/>
+        <location filename="../ui/main_window.py" line="388"/>
         <source>Không mở được thư mục log:
 {path}</source>
         <translation>Could not open log folder:
 {path}</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="390"/>
-        <location filename="../ui/main_window.py" line="406"/>
+        <location filename="../ui/main_window.py" line="394"/>
+        <location filename="../ui/main_window.py" line="410"/>
         <source>Nhập phụ đề</source>
         <translation>Import Subtitles</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="392"/>
+        <location filename="../ui/main_window.py" line="396"/>
         <source>Tệp phụ đề (*.srt *.vtt);;Tất cả tệp (*.*)</source>
         <translation>Subtitle files (*.srt *.vtt);;All files (*.*)</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="400"/>
+        <location filename="../ui/main_window.py" line="404"/>
         <source>Nhập phụ đề thất bại</source>
         <translation>Import subtitles failed</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="407"/>
+        <location filename="../ui/main_window.py" line="411"/>
         <source>Không có đoạn phụ đề nào được nhập.</source>
         <translation>No caption entries were imported.</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="412"/>
+        <location filename="../ui/main_window.py" line="416"/>
         <source>Đã nhập {count} đoạn phụ đề.</source>
         <translation>Imported {count} caption entries.</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="419"/>
-        <location filename="../ui/main_window.py" line="438"/>
+        <location filename="../ui/main_window.py" line="423"/>
+        <location filename="../ui/main_window.py" line="442"/>
         <source>Xuất phụ đề</source>
         <translation>Export Subtitles</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="421"/>
+        <location filename="../ui/main_window.py" line="425"/>
         <source>Phụ đề SubRip (*.srt);;Tất cả tệp (*.*)</source>
         <translation>SubRip subtitles (*.srt);;All files (*.*)</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="432"/>
+        <location filename="../ui/main_window.py" line="436"/>
         <source>Xuất phụ đề thất bại</source>
         <translation>Export subtitles failed</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="439"/>
+        <location filename="../ui/main_window.py" line="443"/>
         <source>Không có clip phụ đề nào để xuất.</source>
         <translation>No caption clips to export.</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="444"/>
+        <location filename="../ui/main_window.py" line="448"/>
         <source>Đã xuất {count} đoạn phụ đề.</source>
         <translation>Exported {count} caption entries.</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="456"/>
+        <location filename="../ui/main_window.py" line="460"/>
         <source>Mở dự án</source>
         <translation>Open Project</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="458"/>
-        <location filename="../ui/main_window.py" line="550"/>
+        <location filename="../ui/main_window.py" line="462"/>
+        <location filename="../ui/main_window.py" line="554"/>
         <source>Tệp dự án (*.json);;Tất cả tệp (*.*)</source>
         <translation>Project files (*.json);;All files (*.*)</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="463"/>
+        <location filename="../ui/main_window.py" line="467"/>
         <source>mở dự án khác</source>
         <translation>open another project</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="469"/>
+        <location filename="../ui/main_window.py" line="473"/>
         <source>Mở dự án thất bại</source>
         <translation>Open project failed</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="474"/>
+        <location filename="../ui/main_window.py" line="478"/>
         <source>Đã mở dự án: {path}</source>
         <translation>Opened project: {path}</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="484"/>
-        <location filename="../ui/main_window.py" line="494"/>
+        <location filename="../ui/main_window.py" line="488"/>
+        <location filename="../ui/main_window.py" line="498"/>
         <source>Đã lưu dự án: {path}</source>
         <translation>Project saved: {path}</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="503"/>
+        <location filename="../ui/main_window.py" line="507"/>
         <source>Xuất dự án</source>
         <translation>Export Project</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="504"/>
+        <location filename="../ui/main_window.py" line="508"/>
         <source>Không có dự án đang mở để xuất.</source>
         <translation>No project is open to export.</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="535"/>
-        <location filename="../ui/main_window.py" line="600"/>
+        <location filename="../ui/main_window.py" line="539"/>
+        <location filename="../ui/main_window.py" line="604"/>
         <source>Xuất thất bại</source>
         <translation>Export failed</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="548"/>
-        <location filename="../ui/main_window.py" line="777"/>
+        <location filename="../ui/main_window.py" line="552"/>
+        <location filename="../ui/main_window.py" line="816"/>
         <source>Lưu dự án</source>
         <translation>Save Project</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="567"/>
+        <location filename="../ui/main_window.py" line="571"/>
         <source>Đang xuất: {path}</source>
         <translation>Exporting: {path}</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="573"/>
+        <location filename="../ui/main_window.py" line="577"/>
         <source>Đang xuất... {percent:.0f}%</source>
         <translation>Exporting... {percent:.0f}%</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="583"/>
+        <location filename="../ui/main_window.py" line="587"/>
         <source>Đã xuất: {path} ({count} cảnh báo)</source>
         <translation>Exported: {path} ({count} warnings)</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="591"/>
+        <location filename="../ui/main_window.py" line="595"/>
         <source>Đã xuất: {path}</source>
         <translation>Exported: {path}</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="597"/>
+        <location filename="../ui/main_window.py" line="601"/>
         <source>Xuất thất bại: {message}</source>
         <translation>Export failed: {message}</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="613"/>
+        <location filename="../ui/main_window.py" line="617"/>
         <source>Không có dự án</source>
         <translation>No project</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="616"/>
+        <location filename="../ui/main_window.py" line="620"/>
         <source>{fps:g} fps</source>
         <translation>{fps:g} fps</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="618"/>
-        <location filename="../ui/main_window.py" line="648"/>
+        <location filename="../ui/main_window.py" line="622"/>
+        <location filename="../ui/main_window.py" line="652"/>
         <source>Không có tiêu đề</source>
         <translation>Untitled</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="619"/>
+        <location filename="../ui/main_window.py" line="623"/>
         <source>{count} clip</source>
         <translation>{count} clip(s)</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="629"/>
+        <location filename="../ui/main_window.py" line="633"/>
         <source>Có thay đổi chưa lưu</source>
         <translation>Unsaved changes</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="632"/>
+        <location filename="../ui/main_window.py" line="636"/>
         <source>Đã lưu mọi thay đổi</source>
         <translation>All changes saved</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="665"/>
+        <location filename="../ui/main_window.py" line="669"/>
         <source>đóng ứng dụng</source>
         <translation>close the app</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="746"/>
+        <location filename="../ui/main_window.py" line="785"/>
         <source>Thay đổi chưa lưu</source>
         <translation>Unsaved changes</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="748"/>
+        <location filename="../ui/main_window.py" line="787"/>
         <source>Dự án hiện tại có thay đổi chưa lưu. Bạn muốn lưu trước khi {action} không?</source>
         <translation>The current project has unsaved changes. Save before {action}?</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="771"/>
+        <location filename="../ui/main_window.py" line="810"/>
         <source>Lưu dự án thất bại</source>
         <translation>Save project failed</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="778"/>
+        <location filename="../ui/main_window.py" line="817"/>
         <source>Không có dự án đang mở để lưu.</source>
         <translation>No project is open to save.</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="794"/>
-        <location filename="../ui/main_window.py" line="811"/>
+        <location filename="../ui/main_window.py" line="833"/>
+        <location filename="../ui/main_window.py" line="850"/>
         <source>Khôi phục tự động lưu</source>
         <translation>Restore Autosave</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="796"/>
+        <location filename="../ui/main_window.py" line="835"/>
         <source>Đã tìm thấy bản tự động lưu có thể khôi phục.
 
 Bạn muốn khôi phục không?
@@ -997,17 +1035,17 @@ Do you want to restore it?
 {summary}</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="806"/>
+        <location filename="../ui/main_window.py" line="845"/>
         <source>Đã khôi phục dự án từ bản tự động lưu.</source>
         <translation>Project restored from autosave.</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="812"/>
+        <location filename="../ui/main_window.py" line="851"/>
         <source>Không thể khôi phục bản tự động lưu.</source>
         <translation>Could not restore the autosave.</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="820"/>
+        <location filename="../ui/main_window.py" line="859"/>
         <source>Tự động lưu thất bại: {message}</source>
         <translation>Autosave failed: {message}</translation>
     </message>
@@ -1357,7 +1395,7 @@ Do you want to restore it?
     </message>
     <message>
         <location filename="../ui/top_bar.py" line="40"/>
-        <location filename="../ui/top_bar.py" line="111"/>
+        <location filename="../ui/top_bar.py" line="118"/>
         <source>Không có tiêu đề</source>
         <translation>Untitled</translation>
     </message>
@@ -1373,7 +1411,7 @@ Do you want to restore it?
     </message>
     <message>
         <location filename="../ui/top_bar.py" line="63"/>
-        <location filename="../ui/top_bar.py" line="104"/>
+        <location filename="../ui/top_bar.py" line="111"/>
         <source>Phóng to</source>
         <translation>Maximize</translation>
     </message>
@@ -1383,7 +1421,7 @@ Do you want to restore it?
         <translation>Close</translation>
     </message>
     <message>
-        <location filename="../ui/top_bar.py" line="101"/>
+        <location filename="../ui/top_bar.py" line="108"/>
         <source>Khôi phục</source>
         <translation>Restore</translation>
     </message>
