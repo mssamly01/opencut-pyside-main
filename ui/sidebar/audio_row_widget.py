@@ -103,3 +103,31 @@ class AudioRowWidget(QWidget):
         if media_id != self._media_id:
             return
         self._waveform_view.set_peaks(peaks)
+
+    @staticmethod
+    def format_tooltip(media_asset: MediaAsset) -> str:
+        lines = [media_asset.name or Path(media_asset.file_path).name]
+        duration = media_asset.duration_seconds
+        if duration is not None and duration > 0:
+            minutes = int(duration // 60)
+            seconds = duration - minutes * 60
+            lines.append(f"Duration: {minutes:d}:{seconds:06.3f}")
+        size = media_asset.file_size_bytes
+        if size is not None and size > 0:
+            lines.append(f"Size: {AudioRowWidget._format_size(int(size))}")
+        codec = media_asset.audio_codec
+        if codec:
+            lines.append(f"Codec: {codec}")
+        sample_rate = media_asset.sample_rate
+        if sample_rate:
+            lines.append(f"Sample rate: {sample_rate} Hz")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_size(num_bytes: int) -> str:
+        size = float(num_bytes)
+        for unit in ("B", "KB", "MB", "GB"):
+            if size < 1024.0 or unit == "GB":
+                return f"{size:.1f} {unit}" if unit != "B" else f"{int(size)} {unit}"
+            size /= 1024.0
+        return f"{size:.1f} GB"

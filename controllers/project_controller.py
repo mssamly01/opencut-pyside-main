@@ -11,6 +11,7 @@ from PySide6.QtCore import QObject, Signal
 class ProjectController(QObject):
     project_changed = Signal()
     project_modified = Signal()
+    media_assets_changed = Signal()
 
     def __init__(
         self,
