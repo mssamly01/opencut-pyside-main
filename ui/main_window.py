@@ -9,8 +9,8 @@ from app.ui.app_shell import AppShell
 from app.ui.dialogs.export_dialog import ExportDialog
 from app.ui.shared.icons import build_icon
 from app.ui.top_bar import TopBar
-from PySide6.QtCore import QEvent, QPoint, Qt, QTimer, QUrl
-from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QKeySequence, QMouseEvent
+from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QTimer, QUrl
+from PySide6.QtGui import QAction, QCloseEvent, QCursor, QDesktopServices, QKeySequence, QMouseEvent
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -40,6 +40,10 @@ class MainWindow(QMainWindow):
         # Sprint 16-B: frameless window with custom title-bar chrome.
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
         self.setMouseTracking(True)
+        self._resize_cursor_active = False
+        application = QApplication.instance()
+        if application is not None:
+            application.installEventFilter(self)
 
         self._top_bar = TopBar(self)
         self._top_bar.export_requested.connect(self._on_export_project_triggered)
@@ -712,25 +716,50 @@ class MainWindow(QMainWindow):
             return Qt.CursorShape.SizeHorCursor
         return Qt.CursorShape.SizeVerCursor
 
-    def mouseMoveEvent(self, event: QMouseEvent) -> None:
-        if not (event.buttons() & Qt.MouseButton.LeftButton):
-            edges = self._resize_edges_at(event.position().toPoint())
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        # Child widgets cover the entire MainWindow, so direct mouse events
+        # on `self` never fire near the edges. We watch the QApplication for
+        # mouse activity and intercept presses/moves whose global position
+        # falls inside the resize border.
+        event_type = event.type()
+        if event_type == QEvent.Type.MouseMove and isinstance(event, QMouseEvent):
+            if not self.isActiveWindow():
+                return super().eventFilter(watched, event)
+            local = self.mapFromGlobal(event.globalPosition().toPoint())
+            if not self.rect().contains(local) or (event.buttons() & Qt.MouseButton.LeftButton):
+                self._clear_resize_cursor()
+                return super().eventFilter(watched, event)
+            edges = self._resize_edges_at(local)
             if edges is None:
-                self.unsetCursor()
+                self._clear_resize_cursor()
             else:
-                self.setCursor(self._cursor_for_edges(edges))
-        super().mouseMoveEvent(event)
+                shape = self._cursor_for_edges(edges)
+                if self._resize_cursor_active:
+                    QApplication.changeOverrideCursor(QCursor(shape))
+                else:
+                    QApplication.setOverrideCursor(QCursor(shape))
+                    self._resize_cursor_active = True
+        elif event_type == QEvent.Type.MouseButtonPress and isinstance(event, QMouseEvent):
+            if event.button() != Qt.MouseButton.LeftButton:
+                return super().eventFilter(watched, event)
+            local = self.mapFromGlobal(event.globalPosition().toPoint())
+            if not self.rect().contains(local):
+                return super().eventFilter(watched, event)
+            edges = self._resize_edges_at(local)
+            if edges is None:
+                return super().eventFilter(watched, event)
+            handle = self.windowHandle()
+            if handle is None:
+                return super().eventFilter(watched, event)
+            self._clear_resize_cursor()
+            handle.startSystemResize(edges)
+            return True
+        return super().eventFilter(watched, event)
 
-    def mousePressEvent(self, event: QMouseEvent) -> None:
-        if event.button() == Qt.MouseButton.LeftButton:
-            edges = self._resize_edges_at(event.position().toPoint())
-            if edges is not None:
-                handle = self.windowHandle()
-                if handle is not None:
-                    handle.startSystemResize(edges)
-                    event.accept()
-                    return
-        super().mousePressEvent(event)
+    def _clear_resize_cursor(self) -> None:
+        if self._resize_cursor_active:
+            QApplication.restoreOverrideCursor()
+            self._resize_cursor_active = False
 
     def changeEvent(self, event: QEvent) -> None:
         if event.type() == QEvent.Type.WindowStateChange and self._top_bar is not None:

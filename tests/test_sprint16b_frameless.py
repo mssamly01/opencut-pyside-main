@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 from app.bootstrap import build_main_window, create_application
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+from PySide6.QtGui import QMouseEvent
 
 
 def test_main_window_has_frameless_flag() -> None:
@@ -59,6 +62,60 @@ def test_resize_edges_hit_corners_and_center() -> None:
         assert bool(edges & Qt.Edge.LeftEdge)
         # Centre of the window: no resize edges.
         assert window._resize_edges_at(QPoint(400, 300)) is None
+    finally:
+        window.close()
+
+
+def test_event_filter_press_at_edge_triggers_system_resize() -> None:
+    create_application(["pytest"])
+    window = build_main_window()
+    try:
+        window.resize(800, 600)
+        window.show()
+        # The eventFilter relies on the live window handle to delegate the
+        # resize to the compositor; we stub it out and verify it gets called
+        # with the correct edges when the press lands inside the 4 px border.
+        fake_handle = MagicMock()
+        window.windowHandle = MagicMock(return_value=fake_handle)  # type: ignore[method-assign]
+        global_pt = window.mapToGlobal(QPoint(2, 2))
+        press = QMouseEvent(
+            QEvent.Type.MouseButtonPress,
+            QPointF(2.0, 2.0),
+            QPointF(global_pt),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        consumed = window.eventFilter(window, press)
+        assert consumed is True
+        fake_handle.startSystemResize.assert_called_once()
+        edges_arg = fake_handle.startSystemResize.call_args.args[0]
+        assert bool(edges_arg & Qt.Edge.TopEdge)
+        assert bool(edges_arg & Qt.Edge.LeftEdge)
+    finally:
+        window.close()
+
+
+def test_event_filter_press_at_center_is_ignored() -> None:
+    create_application(["pytest"])
+    window = build_main_window()
+    try:
+        window.resize(800, 600)
+        window.show()
+        fake_handle = MagicMock()
+        window.windowHandle = MagicMock(return_value=fake_handle)  # type: ignore[method-assign]
+        centre_global = window.mapToGlobal(QPoint(400, 300))
+        press = QMouseEvent(
+            QEvent.Type.MouseButtonPress,
+            QPointF(400.0, 300.0),
+            QPointF(centre_global),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        consumed = window.eventFilter(window, press)
+        assert consumed is False
+        fake_handle.startSystemResize.assert_not_called()
     finally:
         window.close()
 
