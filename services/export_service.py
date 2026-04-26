@@ -650,8 +650,13 @@ class ExportService:
                 f"pad={project.width}:{project.height}:(ow-iw)/2:(oh-ih)/2",
             ]
         )
-        video_filters.extend(self._transform_adjust_filters_for_clip(clip_source.clip, project))
+        # Color grading (eq/hue) must run BEFORE the opacity filter
+        # (colorchannelmixer=aa=...) emitted by _transform_adjust_filters_for_clip.
+        # ffmpeg's eq/hue filters do not support alpha pixel formats, so placing
+        # them after colorchannelmixer would force a yuva->yuv conversion and
+        # silently drop the per-clip opacity.
         video_filters.extend(self._color_adjust_filters_for_clip(clip_source.clip))
+        video_filters.extend(self._transform_adjust_filters_for_clip(clip_source.clip, project))
         video_filters.extend(
             [
                 f"fps={fps:.6f}",

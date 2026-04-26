@@ -5,7 +5,10 @@ from __future__ import annotations
 from app.bootstrap import build_app_context, build_main_window, create_application
 from app.domain.clips.image_clip import ImageClip
 from app.domain.clips.video_clip import VideoClip
-from app.services.export_service import ExportService
+from app.domain.project import Project
+from app.domain.timeline import Timeline
+from app.domain.track import Track
+from app.services.export_service import ExportService, _PreparedClip
 from app.ui.sidebar.effects_panel import EffectsPanel
 from app.ui.sidebar.transitions_panel import TransitionsPanel
 
@@ -74,6 +77,40 @@ def test_color_adjust_filters_emit_eq_and_hue_together() -> None:
     clip = _make_video_clip(brightness=-0.1, hue=-30.0)
     filters = ExportService._color_adjust_filters_for_clip(clip)
     assert filters == ["eq=brightness=-0.100000", "hue=h=-30.000000"]
+
+
+def test_video_filters_apply_color_before_opacity() -> None:
+    """eq/hue must run before colorchannelmixer; otherwise alpha is dropped."""
+    clip = _make_video_clip(
+        clip_id="c-order",
+        track_id="t-order",
+        duration=2.0,
+        brightness=0.2,
+        opacity=0.5,
+    )
+    track = Track(track_id="t-order", name="t", track_type="video", clips=[clip])
+    project = Project(
+        project_id="p1",
+        name="p",
+        width=640,
+        height=360,
+        fps=30.0,
+        timeline=Timeline(tracks=[track]),
+    )
+    prepared = _PreparedClip(
+        clip=clip,
+        input_index=0,
+        placeholder=False,
+        source_start=0.0,
+        source_end=2.0,
+    )
+    service = ExportService()
+    filters = service._video_filters_for_clip(prepared, project, fps=30.0, source_end=2.0)
+    eq_index = next(i for i, f in enumerate(filters) if f.startswith("eq="))
+    opacity_index = next(i for i, f in enumerate(filters) if f.startswith("colorchannelmixer=aa="))
+    assert eq_index < opacity_index, (
+        f"Color grading must precede opacity; got order: {filters}"
+    )
 
 
 def test_left_sidebar_stack_transitions_panel_uses_separate_class() -> None:
