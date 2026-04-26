@@ -11,6 +11,7 @@ from app.domain.commands.move_clip import MoveClipCommand
 from app.domain.commands.move_clip_to_track import MoveClipToTrackCommand
 from app.domain.commands.move_keyframe import MoveKeyframeCommand
 from app.domain.commands.remove_keyframe import RemoveKeyframeCommand
+from app.domain.commands.remove_media_asset import RemoveMediaAssetCommand
 from app.domain.commands.remove_track import RemoveTrackCommand
 from app.domain.commands.remove_transition import RemoveTransitionCommand
 from app.domain.commands.set_keyframe_interpolation import SetKeyframeInterpolationCommand
@@ -34,6 +35,7 @@ __all__ = [
     "MoveKeyframeCommand",
     "MoveClipCommand",
     "MoveClipToTrackCommand",
+    "RemoveMediaAssetCommand",
     "RemoveTransitionCommand",
     "RemoveTrackCommand",
     "RemoveKeyframeCommand",

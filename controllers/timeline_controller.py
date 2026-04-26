@@ -24,6 +24,7 @@ from app.domain.commands import (
     MoveClipToTrackCommand,
     MoveKeyframeCommand,
     RemoveKeyframeCommand,
+    RemoveMediaAssetCommand,
     RemoveTrackCommand,
     RemoveTransitionCommand,
     SetKeyframeInterpolationCommand,
@@ -444,6 +445,51 @@ class TimelineController(QObject):
             self.timeline_changed.emit()
             self.timeline_edited.emit()
         return deleted_any
+
+    def clips_using_media(self, media_id: str) -> list[str]:
+        """Return clip_ids of clips referencing ``media_id`` across all tracks."""
+        timeline = self.active_timeline()
+        if timeline is None:
+            return []
+        return [
+            clip.clip_id
+            for track in timeline.tracks
+            for clip in track.clips
+            if getattr(clip, "media_id", None) == media_id
+        ]
+
+    def remove_media(self, media_id: str) -> int:
+        """Cascade-delete all clips using ``media_id`` and remove the asset itself.
+
+        Wraps the cascade in a CompositeCommand so a single Ctrl+Z restores both the
+        asset and every deleted clip. Returns the number of clips removed (0 if the
+        asset had no references).
+        """
+        project = self._project_controller.active_project()
+        timeline = self.active_timeline()
+        if project is None or timeline is None:
+            return 0
+
+        clip_ids = self.clips_using_media(media_id)
+        commands: list[BaseCommand] = [
+            DeleteClipCommand(timeline=timeline, clip_id=clip_id) for clip_id in clip_ids
+        ]
+        commands.append(RemoveMediaAssetCommand(project=project, media_id=media_id))
+        self._command_manager.execute(CompositeCommand(commands))
+
+        if clip_ids:
+            remaining = [
+                selected
+                for selected in self._selection_controller.selected_clip_ids()
+                if selected not in clip_ids
+            ]
+            self._selection_controller.set_selection(remaining)
+
+        self._project_controller.media_assets_changed.emit()
+        if clip_ids:
+            self.timeline_changed.emit()
+        self.timeline_edited.emit()
+        return len(clip_ids)
 
     def ripple_delete_clip(self, clip_id: str | None = None) -> bool:
         timeline = self.active_timeline()
@@ -1188,6 +1234,7 @@ class TimelineController(QObject):
         if did_undo:
             self.timeline_changed.emit()
             self.timeline_edited.emit()
+            self._project_controller.media_assets_changed.emit()
         return did_undo
 
     def redo(self) -> bool:
@@ -1195,6 +1242,7 @@ class TimelineController(QObject):
         if did_redo:
             self.timeline_changed.emit()
             self.timeline_edited.emit()
+            self._project_controller.media_assets_changed.emit()
         return did_redo
 
     def execute_command(self, command: BaseCommand) -> None:
