@@ -16,6 +16,7 @@ class Track:
     is_muted: bool = False
     is_locked: bool = False
     is_hidden: bool = False
+    is_main: bool = False
     height: float = 58.0
     transitions: list[Transition] = field(default_factory=list)
 

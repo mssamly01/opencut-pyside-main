@@ -60,7 +60,16 @@ def test_clips_using_media_returns_referencing_clip_ids(qapp: QApplication) -> N
     project.media_items.append(
         MediaAsset(media_id="mA", name="A", file_path="/a.wav", media_type="audio")
     )
-    audio_track = next(track for track in project.timeline.tracks if track.track_type == "audio")
+    # Empty project only ships with the main video track; create an audio track on demand.
+    from app.domain.track import Track
+
+    audio_track = Track(
+        track_id="track_audio_test",
+        name="Audio",
+        track_type="audio",
+        clips=[],
+    )
+    project.timeline.tracks.append(audio_track)
     audio_track.clips.extend(
         [
             AudioClip(
@@ -166,7 +175,15 @@ def test_composite_remove_with_clip_undo_order(qapp: QApplication) -> None:
     project.media_items.append(
         MediaAsset(media_id="mZ", name="Z", file_path="/z.wav", media_type="audio")
     )
-    audio_track = next(track for track in project.timeline.tracks if track.track_type == "audio")
+    from app.domain.track import Track
+
+    audio_track = Track(
+        track_id="track_audio_test_z",
+        name="Audio",
+        track_type="audio",
+        clips=[],
+    )
+    project.timeline.tracks.append(audio_track)
     clip = AudioClip(
         clip_id="ac1",
         name="aclip",

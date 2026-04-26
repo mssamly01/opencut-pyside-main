@@ -23,23 +23,17 @@ class Project:
 
 
 def build_empty_project() -> Project:
-    """Create an empty project scaffold with Text/Main/Media tracks."""
-    text_track = Track(
-        track_id="track_text_1",
-        name="Text 1",
-        track_type="text",
-        clips=[],
-    )
-    video_track = Track(
+    """Create an empty project scaffold with a single empty main video track.
+
+    Following the CapCut model, only the main track exists at project creation.
+    Overlay/text/audio tracks are created on demand when the corresponding clip
+    type is added.
+    """
+    main_track = Track(
         track_id="track_video_1",
         name="Main",
         track_type="video",
-        clips=[],
-    )
-    media_track = Track(
-        track_id="track_media_1",
-        name="Media",
-        track_type="audio",
+        is_main=True,
         clips=[],
     )
     return Project(
@@ -48,7 +42,7 @@ def build_empty_project() -> Project:
         width=1920,
         height=1080,
         fps=30.0,
-        timeline=Timeline(tracks=[text_track, video_track, media_track]),
+        timeline=Timeline(tracks=[main_track]),
         media_items=[],
     )
 
@@ -90,6 +84,7 @@ def build_demo_project() -> Project:
         track_id="track_video_1",
         name="Main",
         track_type="video",
+        is_main=True,
         clips=[
             VideoClip(
                 clip_id="clip_v1_1",

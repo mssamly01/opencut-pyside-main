@@ -242,6 +242,33 @@ class TimelineController(QObject):
             return None
 
         clip = self._build_clip_from_media(media_asset, target_track.track_id, normalized_start)
+
+        # Main track behaves sequentially: ripple-insert when the requested slot overlaps
+        # existing clips, instead of routing the clip to a new overlay track.
+        main_track = self._get_main_track(timeline)
+        if (
+            main_track is not None
+            and target_track.track_id == main_track.track_id
+            and not main_track.is_locked
+        ):
+            anchor_start = self._resolve_main_insertion_start(main_track, normalized_start)
+            push_amount = max(0.0, float(clip.duration))
+            ripple_commands = self._build_main_ripple_commands(
+                track=main_track,
+                anchor_start=anchor_start,
+                push_amount=push_amount,
+            )
+            clip.timeline_start = anchor_start
+            clip.track_id = main_track.track_id
+            commands: list[BaseCommand] = list(ripple_commands)
+            commands.append(
+                AddClipCommand(timeline=timeline, track_id=main_track.track_id, clip=clip)
+            )
+            self.execute_command(
+                commands[0] if len(commands) == 1 else CompositeCommand(commands)
+            )
+            return clip.clip_id
+
         destination_track = self._find_track_for_non_overlapping_placement(
             timeline=timeline,
             clip=clip,
@@ -276,37 +303,43 @@ class TimelineController(QObject):
             clip=clip,
             proposed_start=max(0.0, new_timeline_start),
         )
-        destination_track = self._find_track_for_non_overlapping_placement(
-            timeline=timeline,
-            clip=clip,
-            proposed_start=snapped_start,
-            preferred_track_id=track.track_id,
-            allow_create_track=True,
-            exclude_clip_id=clip_id,
-        )
-        if destination_track is None:
-            return False
 
-        commands: list[BaseCommand] = [
+        # Main track: ripple-shift colliding clips out of the way and keep the moving
+        # clip on the main track. Free tracks (text/overlay/audio) allow overlap, so we
+        # just move the clip on its current track without re-routing.
+        if track.is_main:
+            anchor_start = self._resolve_main_insertion_start(
+                track=track,
+                proposed_start=snapped_start,
+                exclude_clip_id=clip_id,
+            )
+            push_amount = max(0.0, float(clip.duration))
+            ripple_commands = self._build_main_ripple_commands(
+                track=track,
+                anchor_start=anchor_start,
+                push_amount=push_amount,
+                exclude_clip_id=clip_id,
+            )
+            commands: list[BaseCommand] = list(ripple_commands)
+            commands.append(
+                MoveClipCommand(
+                    timeline=timeline,
+                    clip_id=clip_id,
+                    new_timeline_start=anchor_start,
+                )
+            )
+            self.execute_command(
+                commands[0] if len(commands) == 1 else CompositeCommand(commands)
+            )
+            return True
+
+        self.execute_command(
             MoveClipCommand(
                 timeline=timeline,
                 clip_id=clip_id,
                 new_timeline_start=snapped_start,
             )
-        ]
-        if destination_track.track_id != track.track_id:
-            commands.append(
-                MoveClipToTrackCommand(
-                    timeline=timeline,
-                    clip_id=clip_id,
-                    target_track_id=destination_track.track_id,
-                )
-            )
-
-        if len(commands) == 1:
-            self.execute_command(commands[0])
-        else:
-            self.execute_command(CompositeCommand(commands))
+        )
         return True
 
     def trim_clip(
@@ -415,6 +448,38 @@ class TimelineController(QObject):
 
         if self._is_clip_locked(track, clip):
             return False
+
+        # Main track auto-ripples on delete so subsequent clips slide up to fill the gap.
+        # Free tracks (text/overlay/audio) just delete the clip without affecting siblings.
+        if track.is_main:
+            deleted_duration = max(0.0, float(clip.duration))
+            clip_end = float(clip.timeline_end)
+            commands: list[BaseCommand] = [DeleteClipCommand(timeline=timeline, clip_id=clip_id)]
+            for sibling in sorted(track.clips, key=lambda c: c.timeline_start):
+                if sibling.clip_id == clip_id or sibling.is_locked:
+                    continue
+                if sibling.timeline_start >= clip_end - 1e-6:
+                    new_start = max(0.0, sibling.timeline_start - deleted_duration)
+                    if abs(new_start - sibling.timeline_start) < 1e-6:
+                        continue
+                    commands.append(
+                        UpdatePropertyCommand(
+                            target=sibling,
+                            attribute_name="timeline_start",
+                            new_value=new_start,
+                        )
+                    )
+            self.execute_command(
+                commands[0] if len(commands) == 1 else CompositeCommand(commands)
+            )
+            if self._selection_controller.is_selected(clip_id):
+                remaining = [
+                    selected
+                    for selected in self._selection_controller.selected_clip_ids()
+                    if selected != clip_id
+                ]
+                self._selection_controller.set_selection(remaining)
+            return True
 
         self._command_manager.execute(DeleteClipCommand(timeline=timeline, clip_id=clip_id))
         if self._selection_controller.is_selected(clip_id):
@@ -1703,6 +1768,54 @@ class TimelineController(QObject):
             return normalized_track_type in {"video", "overlay", "mixed"}
         return True
 
+    def _resolve_main_insertion_start(
+        self,
+        track: Track,
+        proposed_start: float,
+        exclude_clip_id: str | None = None,
+    ) -> float:
+        """Snap forward when proposed_start falls strictly inside an existing clip.
+
+        When the anchor equals an existing clip's start we leave it in place — the
+        ripple step will push that clip aside instead.
+        """
+        epsilon = 1e-6
+        anchor = max(0.0, float(proposed_start))
+        # Iterate sorted by start so a chain of contiguous blocking clips snaps to the rightmost edge.
+        for existing in sorted(track.clips, key=lambda c: c.timeline_start):
+            if exclude_clip_id is not None and existing.clip_id == exclude_clip_id:
+                continue
+            if existing.timeline_start + epsilon < anchor < existing.timeline_end - epsilon:
+                anchor = existing.timeline_end
+        return anchor
+
+    def _build_main_ripple_commands(
+        self,
+        track: Track,
+        anchor_start: float,
+        push_amount: float,
+        exclude_clip_id: str | None = None,
+    ) -> list[BaseCommand]:
+        """Build commands to shift all clips starting at >= anchor_start by push_amount."""
+        if push_amount <= 1e-6:
+            return []
+        epsilon = 1e-6
+        commands: list[BaseCommand] = []
+        for existing in track.clips:
+            if exclude_clip_id is not None and existing.clip_id == exclude_clip_id:
+                continue
+            if existing.is_locked:
+                continue
+            if existing.timeline_start >= anchor_start - epsilon:
+                commands.append(
+                    UpdatePropertyCommand(
+                        target=existing,
+                        attribute_name="timeline_start",
+                        new_value=existing.timeline_start + push_amount,
+                    )
+                )
+        return commands
+
     def _find_track_for_non_overlapping_placement(
         self,
         timeline: Timeline,
@@ -1784,6 +1897,11 @@ class TimelineController(QObject):
         return track
 
     def _ensure_main_track_layout(self, timeline: Timeline) -> None:
+        """Ensure the timeline has exactly one main video track and is ordered top-down.
+
+        Per the CapCut-style spec: only the main track is required at all times.
+        Overlay/text/audio tracks are created on demand by the add/move flows.
+        """
         text_tracks = [track for track in timeline.tracks if track.track_type.lower() == "text"]
         video_tracks = [track for track in timeline.tracks if track.track_type.lower() in {"video", "overlay"}]
         media_tracks = [track for track in timeline.tracks if track.track_type.lower() in {"audio", "mixed"}]
@@ -1798,33 +1916,31 @@ class TimelineController(QObject):
                 track_id=f"track_video_{uuid4().hex[:6]}",
                 name="Main",
                 track_type="video",
+                is_main=True,
             )
             timeline.tracks.append(main_track)
             video_tracks = [main_track]
 
-        main_track = next((track for track in video_tracks if track.name.strip().lower() == "main"), video_tracks[0])
+        main_track = next(
+            (track for track in video_tracks if track.is_main),
+            None,
+        )
+        if main_track is None:
+            main_track = next(
+                (track for track in video_tracks if track.name.strip().lower() == "main"),
+                video_tracks[0],
+            )
+            main_track.is_main = True
         main_track.name = "Main"
         video_tracks = [main_track] + [track for track in video_tracks if track.track_id != main_track.track_id]
 
-        if not text_tracks:
-            text_track = Track(
-                track_id=f"track_text_{uuid4().hex[:6]}",
-                name=self._build_unique_track_name(timeline, self._default_track_name_for_type("text")),
-                track_type="text",
-            )
-            timeline.tracks.append(text_track)
-            text_tracks = [text_track]
-
-        if not media_tracks:
-            media_track = Track(
-                track_id=f"track_audio_{uuid4().hex[:6]}",
-                name=self._build_unique_track_name(timeline, self._default_track_name_for_type("audio")),
-                track_type="audio",
-            )
-            timeline.tracks.append(media_track)
-            media_tracks = [media_track]
-
         timeline.tracks = [*text_tracks, *video_tracks, *media_tracks, *other_tracks]
+
+    def _get_main_track(self, timeline: Timeline) -> Track | None:
+        for track in timeline.tracks:
+            if track.is_main:
+                return track
+        return None
 
     def _insert_index_for_new_track(self, timeline: Timeline, track_type: str) -> int:
         normalized = track_type.lower()
