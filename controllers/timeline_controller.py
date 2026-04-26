@@ -291,6 +291,37 @@ class TimelineController(QObject):
             )
             return clip.clip_id
 
+<<<<<<< HEAD
+=======
+        clip = self._build_clip_from_media(media_asset, target_track.track_id, normalized_start)
+
+        # Main track behaves sequentially: ripple-insert when the requested slot overlaps
+        # existing clips, instead of routing the clip to a new overlay track.
+        main_track = self._get_main_track(timeline)
+        if (
+            main_track is not None
+            and target_track.track_id == main_track.track_id
+            and not main_track.is_locked
+        ):
+            anchor_start = self._resolve_main_insertion_start(main_track, normalized_start)
+            push_amount = max(0.0, float(clip.duration))
+            ripple_commands = self._build_main_ripple_commands(
+                track=main_track,
+                anchor_start=anchor_start,
+                push_amount=push_amount,
+            )
+            clip.timeline_start = anchor_start
+            clip.track_id = main_track.track_id
+            commands: list[BaseCommand] = list(ripple_commands)
+            commands.append(
+                AddClipCommand(timeline=timeline, track_id=main_track.track_id, clip=clip)
+            )
+            self.execute_command(
+                commands[0] if len(commands) == 1 else CompositeCommand(commands)
+            )
+            return clip.clip_id
+
+>>>>>>> 782f8ec6801ae58e198c32db52018999baab2572
         destination_track = self._find_track_for_non_overlapping_placement(
             timeline=timeline,
             clip=clip,
