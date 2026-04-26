@@ -147,7 +147,7 @@ class TimelineToolbar(QWidget):
             self._playhead_sticky_checkbox.setChecked(self._timeline_view.playhead_sticky_to_mouse_enabled())
             pps = self._timeline_controller.pixels_per_second
             self._zoom_slider.setValue(self._pixels_per_second_to_slider(pps))
-            self._zoom_label.setText(f"Zoom: {pps:.0f} px/s")
+            self._zoom_label.setText(self.tr("Thu phóng: {pps:.0f} px/s").format(pps=pps))
         finally:
             self._is_syncing = False
 

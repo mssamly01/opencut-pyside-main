@@ -579,7 +579,7 @@ class PreviewWidget(QWidget):
             return
         if self._project_controller.set_project_resolution(width, height):
             self._playback_controller.refresh_preview_frame()
-            self._aspect_menu_button.setText(f"Ty le {action.text()}")
+            self._aspect_menu_button.setText(self.tr("Tỉ lệ {ratio}").format(ratio=action.text()))
 
     def _refresh_total_duration(self) -> None:
         project = self._project_controller.active_project()

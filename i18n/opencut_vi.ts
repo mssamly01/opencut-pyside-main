@@ -17,48 +17,53 @@
 <context>
     <name>AudioPanel</name>
     <message>
-        <location filename="../ui/sidebar/audio_panel.py" line="50"/>
+        <location filename="../ui/sidebar/audio_panel.py" line="28"/>
+        <source>Tệp âm thanh (*.mp3 *.wav *.m4a *.aac *.flac *.ogg *.opus);;Tất cả tệp (*.*)</source>
+        <translation>Tệp âm thanh (*.mp3 *.wav *.m4a *.aac *.flac *.ogg *.opus);;Tất cả tệp (*.*)</translation>
+    </message>
+    <message>
+        <location filename="../ui/sidebar/audio_panel.py" line="53"/>
         <source>Âm thanh</source>
         <translation>Âm thanh</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/audio_panel.py" line="54"/>
+        <location filename="../ui/sidebar/audio_panel.py" line="57"/>
         <source>Nhập âm thanh...</source>
         <translation>Nhập âm thanh...</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/audio_panel.py" line="73"/>
+        <location filename="../ui/sidebar/audio_panel.py" line="76"/>
         <source>Nhập tệp âm thanh</source>
         <translation>Nhập tệp âm thanh</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/audio_panel.py" line="107"/>
+        <location filename="../ui/sidebar/audio_panel.py" line="110"/>
         <source>Chưa nhập âm thanh</source>
         <translation>Chưa nhập âm thanh</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/audio_panel.py" line="131"/>
+        <location filename="../ui/sidebar/audio_panel.py" line="134"/>
         <source>Hiện trong thư mục</source>
         <translation>Hiện trong thư mục</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/audio_panel.py" line="132"/>
+        <location filename="../ui/sidebar/audio_panel.py" line="135"/>
         <source>Sao chép đường dẫn tệp</source>
         <translation>Sao chép đường dẫn tệp</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/audio_panel.py" line="139"/>
-        <location filename="../ui/sidebar/audio_panel.py" line="197"/>
+        <location filename="../ui/sidebar/audio_panel.py" line="142"/>
+        <location filename="../ui/sidebar/audio_panel.py" line="200"/>
         <source>Xóa khỏi project</source>
         <translation>Xóa khỏi project</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/audio_panel.py" line="190"/>
+        <location filename="../ui/sidebar/audio_panel.py" line="193"/>
         <source>Có {count} clip đang dùng &quot;{name}&quot;. Xóa asset sẽ xóa luôn các clip này (có thể Undo). Tiếp tục?</source>
         <translation>Có {count} clip đang dùng &quot;{name}&quot;. Xóa asset sẽ xóa luôn các clip này (có thể Undo). Tiếp tục?</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/audio_panel.py" line="194"/>
+        <location filename="../ui/sidebar/audio_panel.py" line="197"/>
         <source>Xóa &quot;{name}&quot; khỏi project?</source>
         <translation>Xóa &quot;{name}&quot; khỏi project?</translation>
     </message>
@@ -361,42 +366,42 @@
 <context>
     <name>EffectsDrawer</name>
     <message>
-        <location filename="../ui/effects_drawer.py" line="10"/>
+        <location filename="../ui/effects_drawer.py" line="11"/>
         <source>Hiệu ứng tan</source>
         <translation>Hiệu ứng tan</translation>
     </message>
     <message>
-        <location filename="../ui/effects_drawer.py" line="11"/>
+        <location filename="../ui/effects_drawer.py" line="12"/>
         <source>Mờ về đen</source>
         <translation>Mờ về đen</translation>
     </message>
     <message>
-        <location filename="../ui/effects_drawer.py" line="12"/>
+        <location filename="../ui/effects_drawer.py" line="13"/>
         <source>Trượt &lt;-</source>
         <translation>Trượt &lt;-</translation>
     </message>
     <message>
-        <location filename="../ui/effects_drawer.py" line="13"/>
+        <location filename="../ui/effects_drawer.py" line="14"/>
         <source>Trượt -&gt;</source>
         <translation>Trượt -&gt;</translation>
     </message>
     <message>
-        <location filename="../ui/effects_drawer.py" line="14"/>
+        <location filename="../ui/effects_drawer.py" line="15"/>
         <source>Xóa &lt;-</source>
         <translation>Xóa &lt;-</translation>
     </message>
     <message>
-        <location filename="../ui/effects_drawer.py" line="15"/>
+        <location filename="../ui/effects_drawer.py" line="16"/>
         <source>Xóa -&gt;</source>
         <translation>Xóa -&gt;</translation>
     </message>
     <message>
-        <location filename="../ui/effects_drawer.py" line="62"/>
+        <location filename="../ui/effects_drawer.py" line="63"/>
         <source>Chuyển cảnh</source>
         <translation>Chuyển cảnh</translation>
     </message>
     <message>
-        <location filename="../ui/effects_drawer.py" line="66"/>
+        <location filename="../ui/effects_drawer.py" line="67"/>
         <source>Kéo vào ranh giới giữa hai clip.</source>
         <translation>Kéo vào ranh giới giữa hai clip.</translation>
     </message>
@@ -1118,6 +1123,11 @@ Bạn muốn khôi phục không?
         <source>Toàn màn hình</source>
         <translation>Toàn màn hình</translation>
     </message>
+    <message>
+        <location filename="../ui/preview/preview_widget.py" line="582"/>
+        <source>Tỉ lệ {ratio}</source>
+        <translation>Tỉ lệ {ratio}</translation>
+    </message>
 </context>
 <context>
     <name>ProjectInspector</name>
@@ -1332,6 +1342,11 @@ Bạn muốn khôi phục không?
         <source>Vừa khít</source>
         <translation>Vừa khít</translation>
     </message>
+    <message>
+        <location filename="../ui/timeline/timeline_toolbar.py" line="150"/>
+        <source>Thu phóng: {pps:.0f} px/s</source>
+        <translation>Thu phóng: {pps:.0f} px/s</translation>
+    </message>
 </context>
 <context>
     <name>TopBar</name>
@@ -1368,7 +1383,7 @@ Bạn muốn khôi phục không?
 <context>
     <name>_TransitionDragButton</name>
     <message>
-        <location filename="../ui/effects_drawer.py" line="26"/>
+        <location filename="../ui/effects_drawer.py" line="27"/>
         <source>Kéo vào ranh giới giữa hai clip trên dòng thời gian</source>
         <translation>Kéo vào ranh giới giữa hai clip trên dòng thời gian</translation>
     </message>
@@ -1376,9 +1391,8 @@ Bạn muốn khôi phục không?
 <context>
     <name>widget</name>
     <message>
-        <location filename="../ui/sidebar/audio_panel.py" line="28"/>
         <source>Tệp âm thanh (*.mp3 *.wav *.m4a *.aac *.flac *.ogg *.opus);;Tất cả tệp (*.*)</source>
-        <translation>Tệp âm thanh (*.mp3 *.wav *.m4a *.aac *.flac *.ogg *.opus);;Tất cả tệp (*.*)</translation>
+        <translation type="vanished">Tệp âm thanh (*.mp3 *.wav *.m4a *.aac *.flac *.ogg *.opus);;Tất cả tệp (*.*)</translation>
     </message>
 </context>
 </TS>

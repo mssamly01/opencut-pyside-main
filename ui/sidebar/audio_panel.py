@@ -8,7 +8,7 @@ from app.domain.media_asset import MediaAsset
 from app.services.waveform_loader import WaveformLoader
 from app.ui.media_panel.media_item_widget import MediaListWidget
 from app.ui.sidebar.audio_row_widget import AudioRowWidget
-from PySide6.QtCore import QSize, Qt, QUrl
+from PySide6.QtCore import QCoreApplication, QSize, Qt, QUrl
 from PySide6.QtGui import QAction, QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -24,8 +24,11 @@ from PySide6.QtWidgets import (
 _AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus"}
 
 
-def _audio_file_filter(widget: QWidget) -> str:
-    return widget.tr("Tệp âm thanh (*.mp3 *.wav *.m4a *.aac *.flac *.ogg *.opus);;Tất cả tệp (*.*)")
+def _audio_file_filter() -> str:
+    return QCoreApplication.translate(
+        "AudioPanel",
+        "Tệp âm thanh (*.mp3 *.wav *.m4a *.aac *.flac *.ogg *.opus);;Tất cả tệp (*.*)",
+    )
 
 
 class AudioPanel(QWidget):
@@ -72,7 +75,7 @@ class AudioPanel(QWidget):
             self,
             self.tr("Nhập tệp âm thanh"),
             "",
-            _audio_file_filter(self),
+            _audio_file_filter(),
         )
         if not selected_paths:
             return
