@@ -318,6 +318,172 @@ def test_panel_slider_resyncs_to_keyframe_value_as_playhead_moves() -> None:
         panel.deleteLater()
 
 
+# --- Regression: Devin Review feedback on PR #7 ---------------------------
+
+
+def test_preview_skips_prefetch_when_clip_has_animated_color(tmp_path) -> None:
+    """Animated color makes the filter chain time-dependent, so prefetched
+    neighbour frames would never match future cache lookups.  PlaybackService
+    must skip prefetch entirely and decode just the requested frame."""
+    from pathlib import Path
+
+    from app.domain.media_asset import MediaAsset
+    from app.domain.track import Track
+    from app.infrastructure.ffmpeg_gateway import FFmpegGateway
+    from app.services.playback_service import PlaybackService
+
+    media_file: Path = tmp_path / "sample.mp4"
+    media_file.write_bytes(b"fake-video")
+
+    class _Gateway(FFmpegGateway):
+        def __init__(self) -> None:
+            self.sequence_calls = 0
+            self.single_calls = 0
+
+        def extract_frame_sequence_png(  # type: ignore[override]
+            self, file_path, start_time_seconds, fps, frame_count, extra_video_filters=None
+        ):
+            self.sequence_calls += 1
+            return [b"seq-0"] * frame_count
+
+        def extract_frame_png(  # type: ignore[override]
+            self, file_path, time_seconds, extra_video_filters=None
+        ):
+            self.single_calls += 1
+            return b"single-frame"
+
+    clip = VideoClip(
+        clip_id="c1",
+        name="Animated",
+        track_id="t1",
+        timeline_start=0.0,
+        duration=4.0,
+        media_id="m1",
+        source_start=0.0,
+        brightness_keyframes=[
+            Keyframe(time_seconds=0.0, value=-0.3),
+            Keyframe(time_seconds=2.0, value=0.4),
+        ],
+    )
+    track = Track(track_id="t1", name="Video", track_type="video", clips=[clip])
+    media = MediaAsset(
+        media_id="m1",
+        name="sample",
+        file_path=str(media_file),
+        media_type="video",
+        duration_seconds=4.0,
+    )
+    project = Project(
+        project_id="p1",
+        name="Demo",
+        width=1920,
+        height=1080,
+        fps=30.0,
+        timeline=Timeline(tracks=[track]),
+        media_items=[media],
+    )
+
+    gateway = _Gateway()
+    service = PlaybackService(ffmpeg_gateway=gateway)
+    service.get_preview_frame(project, time_seconds=0.5)
+
+    assert gateway.sequence_calls == 0, "prefetch must be skipped on animated clips"
+    assert gateway.single_calls == 1, "exactly one frame should be decoded"
+
+
+def test_preview_still_prefetches_when_clip_has_no_color_keyframes(tmp_path) -> None:
+    """Sanity: the prefetch optimization is preserved for static clips."""
+    from pathlib import Path
+
+    from app.domain.media_asset import MediaAsset
+    from app.domain.track import Track
+    from app.infrastructure.ffmpeg_gateway import FFmpegGateway
+    from app.services.playback_service import PlaybackService
+
+    media_file: Path = tmp_path / "sample.mp4"
+    media_file.write_bytes(b"fake-video")
+
+    class _Gateway(FFmpegGateway):
+        def __init__(self) -> None:
+            self.sequence_calls = 0
+
+        def extract_frame_sequence_png(  # type: ignore[override]
+            self, file_path, start_time_seconds, fps, frame_count, extra_video_filters=None
+        ):
+            self.sequence_calls += 1
+            return [b"seq-0"] * frame_count
+
+        def extract_frame_png(  # type: ignore[override]
+            self, file_path, time_seconds, extra_video_filters=None
+        ):
+            return b"single-frame"
+
+    clip = VideoClip(
+        clip_id="c1",
+        name="Static",
+        track_id="t1",
+        timeline_start=0.0,
+        duration=4.0,
+        media_id="m1",
+        source_start=0.0,
+        brightness=0.2,
+    )
+    track = Track(track_id="t1", name="Video", track_type="video", clips=[clip])
+    media = MediaAsset(
+        media_id="m1",
+        name="sample",
+        file_path=str(media_file),
+        media_type="video",
+        duration_seconds=4.0,
+    )
+    project = Project(
+        project_id="p1",
+        name="Demo",
+        width=1920,
+        height=1080,
+        fps=30.0,
+        timeline=Timeline(tracks=[track]),
+        media_items=[media],
+    )
+
+    gateway = _Gateway()
+    service = PlaybackService(ffmpeg_gateway=gateway)
+    service.get_preview_frame(project, time_seconds=0.5)
+
+    assert gateway.sequence_calls == 1, "static clips must still prefetch"
+
+
+def test_slider_drag_with_keyframes_preserves_static_attribute() -> None:
+    """A drag while keyframes exist must NOT corrupt the static fallback —
+    upserting a keyframe at the playhead is the only mutation, and undo must
+    cleanly roll back to the prior state."""
+    app_controller, clip, panel = _setup_panel()
+    try:
+        clip.brightness = 0.3  # original static fallback value
+        clip.brightness_keyframes.extend([
+            Keyframe(time_seconds=0.0, value=0.0),
+            Keyframe(time_seconds=2.0, value=0.0),
+        ])
+        app_controller.timeline_controller.set_playhead_seconds(1.0)
+        panel._refresh_from_selection()
+        slider = panel.slider_for("brightness")
+        # Simulate a press → drag → release.
+        panel._on_slider_pressed("brightness")
+        slider.setValue(50)  # mouseMove → -> 0.5 (drag-time, must not touch static)
+        panel._on_slider_released("brightness")
+        # The static fallback must still be the original value.
+        assert abs(clip.brightness - 0.3) < 1e-6, (
+            f"static brightness corrupted to {clip.brightness}; expected 0.3"
+        )
+        # Undo the drag — keyframes should return to the original two and the
+        # static must STILL be the original value.
+        app_controller.timeline_controller._command_manager.undo()
+        assert len(clip.brightness_keyframes) == 2
+        assert abs(clip.brightness - 0.3) < 1e-6
+    finally:
+        panel.deleteLater()
+
+
 def test_main_window_boots_with_keyframe_pin_buttons() -> None:
     create_application(["pytest"])
     window = build_main_window()

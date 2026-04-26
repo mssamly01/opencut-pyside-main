@@ -83,7 +83,11 @@ class EffectsPanel(QWidget):
         super().__init__(parent)
         self._app_controller = app_controller
         self._current_clip: VideoClip | ImageClip | None = None
-        self._press_value: float | None = None
+        # Track BOTH the original static attribute (used for revert/old-value
+        # capture in undo commands) AND the resolved value displayed on press
+        # (used for no-op detection).  When keyframes exist the two diverge.
+        self._press_static: float | None = None
+        self._press_resolved: float | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -253,28 +257,34 @@ class EffectsPanel(QWidget):
         clip = self._current_clip
         if clip is None:
             return
-        # Capture the *resolved* value (keyframe-aware) so a drag that ends at
-        # the same value as before commits no command.
+        self._press_static = float(getattr(clip, name))
         if clip_has_keyframes(clip, name):
-            time_in_clip = self._clip_relative_playhead(clip)
-            self._press_value = resolve_clip_value_at(
-                clip, name, time_in_clip, _default_attr(name)
+            self._press_resolved = resolve_clip_value_at(
+                clip,
+                name,
+                self._clip_relative_playhead(clip),
+                _default_attr(name),
             )
         else:
-            self._press_value = float(getattr(clip, name))
+            self._press_resolved = self._press_static
 
     def _on_slider_value_changed(self, name: str, slider_value: int) -> None:
         clip = self._current_clip
         if clip is None:
             return
         new_attr = _slider_to_attr(name, slider_value)
-        if self._press_value is not None:
-            # Mouse drag in progress: live preview only; the undoable command
-            # is committed once on sliderReleased so the whole drag becomes a
-            # single undo step.
-            setattr(clip, name, new_attr)
+        if self._press_static is not None:
+            # Mouse drag in progress.  For non-keyframed clips we mutate the
+            # static attribute so the preview updates live.  For keyframed
+            # clips the preview is bound to the interpolation curve, so a
+            # drag-time mutation of the static fallback would be both
+            # invisible and (worse) corrupt the value the user expects to see
+            # after undo — we update the value label only and commit on
+            # release.
+            if not clip_has_keyframes(clip, name):
+                setattr(clip, name, new_attr)
+                self._app_controller.timeline_controller.timeline_changed.emit()
             self._update_value_label(name, new_attr)
-            self._app_controller.timeline_controller.timeline_changed.emit()
             return
         # No active drag (keyboard arrow / Page Up-Down / programmatic):
         # commit each step as its own undoable command so Ctrl+Z works.
@@ -292,20 +302,20 @@ class EffectsPanel(QWidget):
 
     def _on_slider_released(self, name: str) -> None:
         clip = self._current_clip
-        press_value = self._press_value
-        self._press_value = None
-        if clip is None or press_value is None:
+        press_static = self._press_static
+        press_resolved = self._press_resolved
+        self._press_static = None
+        self._press_resolved = None
+        if clip is None or press_static is None or press_resolved is None:
             return
         new_value = _slider_to_attr(name, self._sliders[name].value())
-        if abs(new_value - press_value) <= 1e-9:
-            # Revert any transient drag mutation; nothing to commit.
-            if not clip_has_keyframes(clip, name):
-                setattr(clip, name, press_value)
+        # Always revert any drag-time mutation back to the original static
+        # attribute so the commit captures (press_static -> new_value) — never
+        # (interpolated -> new_value), which would erase the original on undo.
+        setattr(clip, name, press_static)
+        if abs(new_value - press_resolved) <= 1e-9:
             self._refresh_from_selection()
             return
-        # Revert transient drag value so the command captures (press_value -> new_value)
-        # as a single undoable step.
-        setattr(clip, name, press_value)
         self._commit_slider_change(clip, name, new_value)
 
     def _commit_slider_change(
@@ -316,23 +326,21 @@ class EffectsPanel(QWidget):
     ) -> None:
         """Commit a slider change as one undoable step.
 
-        When keyframes already exist for ``name`` we upsert a keyframe at the
-        current playhead so the user's intent (a value at *this* time) is
-        recorded without losing the rest of the animation curve.  Otherwise
-        we just update the static attribute.
+        When keyframes already exist for ``name`` we *only* upsert a keyframe
+        at the playhead — the static fallback stays untouched so undo cleanly
+        rolls back to the prior animation state.  Without keyframes we just
+        update the static attribute.
         """
         controller = self._app_controller.timeline_controller
         if clip_has_keyframes(clip, name):
             time_in_clip = self._clip_relative_playhead(clip)
-            commands = [
-                UpdatePropertyCommand(target=clip, attribute_name=name, new_value=new_value),
+            controller.execute_command(
                 AddKeyframeCommand(
                     clip,
                     name,
                     Keyframe(time_seconds=time_in_clip, value=float(new_value)),
-                ),
-            ]
-            controller.execute_command(CompositeCommand(commands))
+                )
+            )
         else:
             controller.execute_command(
                 UpdatePropertyCommand(target=clip, attribute_name=name, new_value=new_value)

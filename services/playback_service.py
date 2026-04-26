@@ -13,6 +13,7 @@ from app.domain.project import Project
 from app.infrastructure.ffmpeg_gateway import FFmpegGateway
 from app.infrastructure.video_decoder import VideoDecoder
 from app.services.export_service import ExportService
+from app.services.keyframe_evaluator import clip_has_keyframes
 
 
 @dataclass(slots=True, frozen=True)
@@ -78,31 +79,38 @@ class PlaybackService:
         extra_filters = ExportService._color_adjust_filters_for_clip(
             active_clip, time_in_clip=time_in_clip
         )
+        # When the filter chain depends on time (any color keyframes), prefetched
+        # neighbour frames would be baked with the *current* time's value and
+        # never match future cache lookups — wasted work that also evicts useful
+        # entries from the LRU.  Decode just the requested frame instead.
+        prefetch_enabled = not self._has_animated_color(active_clip)
         cached_frame = self._video_decoder.get_frame(
             normalized_media_path, safe_fps, frame_index, extra_video_filters=extra_filters
         )
         if cached_frame is not None:
+            if prefetch_enabled:
+                self._prefetch_window(
+                    media_path=normalized_media_path,
+                    fps=safe_fps,
+                    frame_index=frame_index + 1,
+                    media_asset=media_asset,
+                    extra_video_filters=extra_filters,
+                )
+            return PreviewFrameResult(frame_bytes=cached_frame, message=media_asset.name)
+
+        if prefetch_enabled:
             self._prefetch_window(
                 media_path=normalized_media_path,
                 fps=safe_fps,
-                frame_index=frame_index + 1,
+                frame_index=frame_index,
                 media_asset=media_asset,
                 extra_video_filters=extra_filters,
             )
-            return PreviewFrameResult(frame_bytes=cached_frame, message=media_asset.name)
-
-        self._prefetch_window(
-            media_path=normalized_media_path,
-            fps=safe_fps,
-            frame_index=frame_index,
-            media_asset=media_asset,
-            extra_video_filters=extra_filters,
-        )
-        cached_frame = self._video_decoder.get_frame(
-            normalized_media_path, safe_fps, frame_index, extra_video_filters=extra_filters
-        )
-        if cached_frame is not None:
-            return PreviewFrameResult(frame_bytes=cached_frame, message=media_asset.name)
+            cached_frame = self._video_decoder.get_frame(
+                normalized_media_path, safe_fps, frame_index, extra_video_filters=extra_filters
+            )
+            if cached_frame is not None:
+                return PreviewFrameResult(frame_bytes=cached_frame, message=media_asset.name)
 
         quantized_source_time = self._time_from_frame_index(frame_index, safe_fps)
         frame_bytes = self._ffmpeg_gateway.extract_frame_png(
@@ -138,6 +146,19 @@ class PlaybackService:
             if media_asset.media_id == media_id:
                 return media_asset
         return None
+
+    @staticmethod
+    def _has_animated_color(clip: BaseClip) -> bool:
+        """True when any color channel has at least one keyframe.
+
+        Time-varying color filters poison the prefetch window — a single
+        ffmpeg call that bakes one playhead's value into many frames is
+        purely wasted work because the cache token includes the filter hash.
+        """
+        for name in ("brightness", "contrast", "saturation", "hue"):
+            if clip_has_keyframes(clip, name):
+                return True
+        return False
 
     @staticmethod
     def _clip_source_time(clip: BaseClip, time_seconds: float) -> float:
