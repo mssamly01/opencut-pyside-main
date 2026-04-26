@@ -409,92 +409,107 @@
 <context>
     <name>EffectsPanel</name>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="61"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="71"/>
         <source>Điện ảnh</source>
         <translation>Điện ảnh</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="63"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="73"/>
         <source>Hoài cổ</source>
         <translation>Hoài cổ</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="65"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="75"/>
         <source>Đen trắng</source>
         <translation>Đen trắng</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="82"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="92"/>
         <source>Hiệu ứng màu</source>
         <translation>Hiệu ứng màu</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="87"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="97"/>
         <source>Chọn một clip video hoặc ảnh trên dòng thời gian để chỉnh màu.</source>
         <translation>Chọn một clip video hoặc ảnh trên dòng thời gian để chỉnh màu.</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="100"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="111"/>
         <source>Độ sáng</source>
         <translation>Độ sáng</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="101"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="112"/>
         <source>Tương phản</source>
         <translation>Tương phản</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="102"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="113"/>
         <source>Bão hoà</source>
         <translation>Bão hoà</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="103"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="114"/>
         <source>Sắc độ</source>
         <translation>Sắc độ</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="118"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="131"/>
         <source>Đặt lại màu</source>
         <translation>Đặt lại màu</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="128"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="141"/>
         <source>LUT 3D</source>
         <translation>LUT 3D</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="133"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="146"/>
         <source>Không dùng LUT</source>
         <translation>Không dùng LUT</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="136"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="149"/>
         <source>Tệp LUT tuỳ chỉnh…</source>
         <translation>Tệp LUT tuỳ chỉnh…</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="316"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="191"/>
+        <source>Thêm/xoá keyframe tại đầu phát</source>
+        <translation>Thêm/xoá keyframe tại đầu phát</translation>
+    </message>
+    <message>
+        <location filename="../ui/sidebar/effects_panel.py" line="408"/>
+        <source>Xoá keyframe tại đầu phát</source>
+        <translation>Xoá keyframe tại đầu phát</translation>
+    </message>
+    <message>
+        <location filename="../ui/sidebar/effects_panel.py" line="410"/>
+        <source>Xoá toàn bộ keyframe</source>
+        <translation>Xoá toàn bộ keyframe</translation>
+    </message>
+    <message>
+        <location filename="../ui/sidebar/effects_panel.py" line="505"/>
         <source>Đang dùng: {label}</source>
         <translation>Đang dùng: {label}</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="335"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="524"/>
         <source>Chọn tệp LUT (.cube)</source>
         <translation>Chọn tệp LUT (.cube)</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="337"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="526"/>
         <source>Tệp LUT (*.cube)</source>
         <translation>Tệp LUT (*.cube)</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="347"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="536"/>
         <source>Tệp LUT không hợp lệ</source>
         <translation>Tệp LUT không hợp lệ</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="348"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="537"/>
         <source>Tệp được chọn không phải tệp .cube hợp lệ (thiếu LUT_3D_SIZE).</source>
         <translation>Tệp được chọn không phải tệp .cube hợp lệ (thiếu LUT_3D_SIZE).</translation>
     </message>

@@ -409,92 +409,107 @@
 <context>
     <name>EffectsPanel</name>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="61"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="71"/>
         <source>Điện ảnh</source>
         <translation>Cinematic</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="63"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="73"/>
         <source>Hoài cổ</source>
         <translation>Vintage</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="65"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="75"/>
         <source>Đen trắng</source>
         <translation>Black &amp; White</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="82"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="92"/>
         <source>Hiệu ứng màu</source>
         <translation>Color effects</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="87"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="97"/>
         <source>Chọn một clip video hoặc ảnh trên dòng thời gian để chỉnh màu.</source>
         <translation>Select a video or image clip on the timeline to grade its color.</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="100"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="111"/>
         <source>Độ sáng</source>
         <translation>Brightness</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="101"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="112"/>
         <source>Tương phản</source>
         <translation>Contrast</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="102"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="113"/>
         <source>Bão hoà</source>
         <translation>Saturation</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="103"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="114"/>
         <source>Sắc độ</source>
         <translation>Hue</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="118"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="131"/>
         <source>Đặt lại màu</source>
         <translation>Reset color</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="128"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="141"/>
         <source>LUT 3D</source>
         <translation>3D LUT</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="133"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="146"/>
         <source>Không dùng LUT</source>
         <translation>No LUT</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="136"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="149"/>
         <source>Tệp LUT tuỳ chỉnh…</source>
         <translation>Custom LUT file…</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="316"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="191"/>
+        <source>Thêm/xoá keyframe tại đầu phát</source>
+        <translation>Add/remove keyframe at playhead</translation>
+    </message>
+    <message>
+        <location filename="../ui/sidebar/effects_panel.py" line="408"/>
+        <source>Xoá keyframe tại đầu phát</source>
+        <translation>Remove keyframe at playhead</translation>
+    </message>
+    <message>
+        <location filename="../ui/sidebar/effects_panel.py" line="410"/>
+        <source>Xoá toàn bộ keyframe</source>
+        <translation>Clear all keyframes</translation>
+    </message>
+    <message>
+        <location filename="../ui/sidebar/effects_panel.py" line="505"/>
         <source>Đang dùng: {label}</source>
         <translation>Using: {label}</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="335"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="524"/>
         <source>Chọn tệp LUT (.cube)</source>
         <translation>Choose LUT file (.cube)</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="337"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="526"/>
         <source>Tệp LUT (*.cube)</source>
         <translation>LUT files (*.cube)</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="347"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="536"/>
         <source>Tệp LUT không hợp lệ</source>
         <translation>Invalid LUT file</translation>
     </message>
     <message>
-        <location filename="../ui/sidebar/effects_panel.py" line="348"/>
+        <location filename="../ui/sidebar/effects_panel.py" line="537"/>
         <source>Tệp được chọn không phải tệp .cube hợp lệ (thiếu LUT_3D_SIZE).</source>
         <translation>The selected file is not a valid .cube file (missing LUT_3D_SIZE).</translation>
     </message>

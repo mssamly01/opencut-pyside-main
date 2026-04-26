@@ -24,3 +24,7 @@ class VideoClip(BaseClip):
     scale_keyframes: list[Keyframe] = field(default_factory=list)
     rotation_keyframes: list[Keyframe] = field(default_factory=list)
     playback_speed_keyframes: list[Keyframe] = field(default_factory=list)
+    brightness_keyframes: list[Keyframe] = field(default_factory=list)
+    contrast_keyframes: list[Keyframe] = field(default_factory=list)
+    saturation_keyframes: list[Keyframe] = field(default_factory=list)
+    hue_keyframes: list[Keyframe] = field(default_factory=list)

@@ -4,15 +4,23 @@ from app.controllers.app_controller import AppController
 from app.domain.clips.base_clip import BaseClip
 from app.domain.clips.image_clip import ImageClip
 from app.domain.clips.video_clip import VideoClip
-from app.domain.commands import CompositeCommand, UpdatePropertyCommand
+from app.domain.commands import (
+    AddKeyframeCommand,
+    CompositeCommand,
+    RemoveKeyframeCommand,
+    UpdatePropertyCommand,
+)
+from app.domain.commands._keyframe_utils import find_keyframe_index
+from app.domain.keyframe import Keyframe
 from app.domain.project import Project
+from app.services.keyframe_evaluator import clip_has_keyframes, resolve_clip_value_at
 from app.services.lut_service import (
     PRESET_ID_PREFIX,
     PRESETS,
     display_label_for_path,
     is_valid_cube_file,
 )
-from PySide6.QtCore import QCoreApplication, Qt
+from PySide6.QtCore import QCoreApplication, QPoint, Qt
 from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
@@ -20,9 +28,11 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QMessageBox,
     QPushButton,
     QSlider,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -73,7 +83,11 @@ class EffectsPanel(QWidget):
         super().__init__(parent)
         self._app_controller = app_controller
         self._current_clip: VideoClip | ImageClip | None = None
-        self._press_value: float | None = None
+        # Track BOTH the original static attribute (used for revert/old-value
+        # capture in undo commands) AND the resolved value displayed on press
+        # (used for no-op detection).  When keyframes exist the two diverge.
+        self._press_static: float | None = None
+        self._press_resolved: float | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -96,22 +110,25 @@ class EffectsPanel(QWidget):
 
         self._sliders: dict[str, QSlider] = {}
         self._value_labels: dict[str, QLabel] = {}
+        self._pin_buttons: dict[str, QToolButton] = {}
         for name, label_text in (
             ("brightness", self.tr("Độ sáng")),
             ("contrast", self.tr("Tương phản")),
             ("saturation", self.tr("Bão hoà")),
             ("hue", self.tr("Sắc độ")),
         ):
-            slider, value_label = self._build_slider_row(name)
+            slider, value_label, pin_button = self._build_slider_row(name)
             row_widget = QWidget(self)
             row_layout = QHBoxLayout(row_widget)
             row_layout.setContentsMargins(0, 0, 0, 0)
             row_layout.setSpacing(6)
             row_layout.addWidget(slider, 1)
             row_layout.addWidget(value_label)
+            row_layout.addWidget(pin_button)
             form.addRow(label_text, row_widget)
             self._sliders[name] = slider
             self._value_labels[name] = value_label
+            self._pin_buttons[name] = pin_button
 
         layout.addLayout(form)
 
@@ -149,11 +166,15 @@ class EffectsPanel(QWidget):
         # Re-sync sliders after undo/redo (or any other timeline edit) so the
         # widget never drifts out of step with the clip's actual color state.
         app_controller.timeline_controller.timeline_edited.connect(self._refresh_from_selection)
+        # Update slider values + pin diamonds as the playhead moves.
+        app_controller.playback_controller.current_time_changed.connect(
+            lambda _seconds: self._refresh_from_selection()
+        )
         self._refresh_from_selection()
 
     # --- slider plumbing ---------------------------------------------------
 
-    def _build_slider_row(self, name: str) -> tuple[QSlider, QLabel]:
+    def _build_slider_row(self, name: str) -> tuple[QSlider, QLabel, QToolButton]:
         lo, hi, _divisor, _default = _SLIDER_RANGES[name]
         slider = QSlider(Qt.Orientation.Horizontal, self)
         slider.setRange(lo, hi)
@@ -165,7 +186,18 @@ class EffectsPanel(QWidget):
         value_label = QLabel("", self)
         value_label.setMinimumWidth(48)
         value_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        return slider, value_label
+        pin_button = QToolButton(self)
+        pin_button.setText("\u25C7")  # ◇ hollow diamond, replaced with ◆ when keyframed
+        pin_button.setAutoRaise(True)
+        pin_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        pin_button.setFixedWidth(24)
+        pin_button.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        pin_button.setToolTip(self.tr("Thêm/xoá keyframe tại đầu phát"))
+        pin_button.clicked.connect(lambda _checked=False, n=name: self._on_pin_clicked(n))
+        pin_button.customContextMenuRequested.connect(
+            lambda pos, n=name: self._on_pin_context_menu(n, pos)
+        )
+        return slider, value_label, pin_button
 
     # --- selection / refresh ----------------------------------------------
 
@@ -175,6 +207,8 @@ class EffectsPanel(QWidget):
         enabled = clip is not None
         for slider in self._sliders.values():
             slider.setEnabled(enabled)
+        for pin in self._pin_buttons.values():
+            pin.setEnabled(enabled)
         self._reset_button.setEnabled(enabled)
         self._lut_combo.setEnabled(enabled)
         if clip is None:
@@ -183,15 +217,25 @@ class EffectsPanel(QWidget):
                 slider.setValue(_attr_to_slider(name, _default_attr(name)))
                 slider.blockSignals(False)
                 self._value_labels[name].setText("")
+                self._set_pin_state(name, "none")
             self._sync_lut_combo("")
             self._lut_status.setText("")
             return
+        time_in_clip = self._clip_relative_playhead(clip)
         for name, slider in self._sliders.items():
-            attr_value = float(getattr(clip, name))
+            # When keyframes exist, the *displayed* value is the interpolated
+            # value at the current playhead — otherwise the static attribute.
+            if clip_has_keyframes(clip, name):
+                attr_value = resolve_clip_value_at(
+                    clip, name, time_in_clip, _default_attr(name)
+                )
+            else:
+                attr_value = float(getattr(clip, name))
             slider.blockSignals(True)
             slider.setValue(_attr_to_slider(name, attr_value))
             slider.blockSignals(False)
             self._update_value_label(name, attr_value)
+            self._set_pin_state(name, self._pin_state_for(clip, name, time_in_clip))
         self._sync_lut_combo(str(getattr(clip, "lut_path", "") or ""))
 
     def _resolve_selected_clip(self) -> VideoClip | ImageClip | None:
@@ -213,58 +257,111 @@ class EffectsPanel(QWidget):
         clip = self._current_clip
         if clip is None:
             return
-        self._press_value = float(getattr(clip, name))
+        self._press_static = float(getattr(clip, name))
+        if clip_has_keyframes(clip, name):
+            self._press_resolved = resolve_clip_value_at(
+                clip,
+                name,
+                self._clip_relative_playhead(clip),
+                _default_attr(name),
+            )
+        else:
+            self._press_resolved = self._press_static
 
     def _on_slider_value_changed(self, name: str, slider_value: int) -> None:
         clip = self._current_clip
         if clip is None:
             return
         new_attr = _slider_to_attr(name, slider_value)
-        if self._press_value is not None:
-            # Mouse drag in progress: live preview only; the undoable command
-            # is committed once on sliderReleased so the whole drag becomes a
-            # single undo step.
-            setattr(clip, name, new_attr)
+        if self._press_static is not None:
+            # Mouse drag in progress.  For non-keyframed clips we mutate the
+            # static attribute so the preview updates live.  For keyframed
+            # clips the preview is bound to the interpolation curve, so a
+            # drag-time mutation of the static fallback would be both
+            # invisible and (worse) corrupt the value the user expects to see
+            # after undo — we update the value label only and commit on
+            # release.
+            if not clip_has_keyframes(clip, name):
+                setattr(clip, name, new_attr)
+                self._app_controller.timeline_controller.timeline_changed.emit()
             self._update_value_label(name, new_attr)
-            self._app_controller.timeline_controller.timeline_changed.emit()
             return
         # No active drag (keyboard arrow / Page Up-Down / programmatic):
         # commit each step as its own undoable command so Ctrl+Z works.
-        old_attr = float(getattr(clip, name))
+        old_attr = (
+            resolve_clip_value_at(
+                clip, name, self._clip_relative_playhead(clip), _default_attr(name)
+            )
+            if clip_has_keyframes(clip, name)
+            else float(getattr(clip, name))
+        )
         if abs(new_attr - old_attr) <= 1e-9:
             return
-        self._app_controller.timeline_controller.execute_command(
-            UpdatePropertyCommand(target=clip, attribute_name=name, new_value=new_attr)
-        )
+        self._commit_slider_change(clip, name, new_attr)
         self._update_value_label(name, new_attr)
 
     def _on_slider_released(self, name: str) -> None:
         clip = self._current_clip
-        press_value = self._press_value
-        self._press_value = None
-        if clip is None or press_value is None:
+        press_static = self._press_static
+        press_resolved = self._press_resolved
+        self._press_static = None
+        self._press_resolved = None
+        if clip is None or press_static is None or press_resolved is None:
             return
-        new_value = float(getattr(clip, name))
-        if abs(new_value - press_value) <= 1e-9:
+        new_value = _slider_to_attr(name, self._sliders[name].value())
+        # Always revert any drag-time mutation back to the original static
+        # attribute so the commit captures (press_static -> new_value) — never
+        # (interpolated -> new_value), which would erase the original on undo.
+        setattr(clip, name, press_static)
+        if abs(new_value - press_resolved) <= 1e-9:
+            self._refresh_from_selection()
             return
-        # Revert transient drag value so the command captures (press_value -> new_value)
-        # as a single undoable step.
-        setattr(clip, name, press_value)
-        self._app_controller.timeline_controller.execute_command(
-            UpdatePropertyCommand(target=clip, attribute_name=name, new_value=new_value)
-        )
+        self._commit_slider_change(clip, name, new_value)
+
+    def _commit_slider_change(
+        self,
+        clip: VideoClip | ImageClip,
+        name: str,
+        new_value: float,
+    ) -> None:
+        """Commit a slider change as one undoable step.
+
+        When keyframes already exist for ``name`` we *only* upsert a keyframe
+        at the playhead — the static fallback stays untouched so undo cleanly
+        rolls back to the prior animation state.  Without keyframes we just
+        update the static attribute.
+        """
+        controller = self._app_controller.timeline_controller
+        if clip_has_keyframes(clip, name):
+            time_in_clip = self._clip_relative_playhead(clip)
+            controller.execute_command(
+                AddKeyframeCommand(
+                    clip,
+                    name,
+                    Keyframe(time_seconds=time_in_clip, value=float(new_value)),
+                )
+            )
+        else:
+            controller.execute_command(
+                UpdatePropertyCommand(target=clip, attribute_name=name, new_value=new_value)
+            )
 
     def _on_reset_clicked(self) -> None:
         clip = self._current_clip
         if clip is None:
             return
-        sub_commands: list[UpdatePropertyCommand] = []
+        sub_commands: list[object] = []
         for name in self._sliders:
             current = float(getattr(clip, name))
             default = _default_attr(name)
             if abs(current - default) > 1e-9:
                 sub_commands.append(
                     UpdatePropertyCommand(target=clip, attribute_name=name, new_value=default)
+                )
+            kf_attr = f"{name}_keyframes"
+            if list(getattr(clip, kf_attr, [])):
+                sub_commands.append(
+                    UpdatePropertyCommand(target=clip, attribute_name=kf_attr, new_value=[])
                 )
         current_lut = str(getattr(clip, "lut_path", "") or "")
         if current_lut:
@@ -276,6 +373,112 @@ class EffectsPanel(QWidget):
                 CompositeCommand(sub_commands)
             )
         self._refresh_from_selection()
+
+    # --- keyframe pin handlers --------------------------------------------
+
+    def _on_pin_clicked(self, name: str) -> None:
+        clip = self._current_clip
+        if clip is None:
+            return
+        time_in_clip = self._clip_relative_playhead(clip)
+        kf_list = list(getattr(clip, f"{name}_keyframes", []))
+        existing_index = find_keyframe_index(kf_list, time_in_clip)
+        controller = self._app_controller.timeline_controller
+        if existing_index is not None:
+            try:
+                controller.execute_command(
+                    RemoveKeyframeCommand(clip, name, float(kf_list[existing_index].time_seconds))
+                )
+            except ValueError:
+                pass
+            return
+        # Upsert at the current playhead with the slider's current value.
+        new_value = _slider_to_attr(name, self._sliders[name].value())
+        controller.execute_command(
+            AddKeyframeCommand(
+                clip,
+                name,
+                Keyframe(time_seconds=time_in_clip, value=float(new_value)),
+            )
+        )
+
+    def _on_pin_context_menu(self, name: str, pos: QPoint) -> None:
+        clip = self._current_clip
+        if clip is None:
+            return
+        kf_list = list(getattr(clip, f"{name}_keyframes", []))
+        if not kf_list:
+            return
+        menu = QMenu(self)
+        time_in_clip = self._clip_relative_playhead(clip)
+        existing_index = find_keyframe_index(kf_list, time_in_clip)
+        if existing_index is not None:
+            remove_one = menu.addAction(self.tr("Xoá keyframe tại đầu phát"))
+            remove_one.triggered.connect(lambda: self._remove_keyframe_at(name, time_in_clip))
+        clear_all = menu.addAction(self.tr("Xoá toàn bộ keyframe"))
+        clear_all.triggered.connect(lambda: self._clear_all_keyframes(name))
+        button = self._pin_buttons[name]
+        menu.exec(button.mapToGlobal(pos))
+
+    def _remove_keyframe_at(self, name: str, time_in_clip: float) -> None:
+        clip = self._current_clip
+        if clip is None:
+            return
+        try:
+            self._app_controller.timeline_controller.execute_command(
+                RemoveKeyframeCommand(clip, name, float(time_in_clip))
+            )
+        except ValueError:
+            pass
+
+    def _clear_all_keyframes(self, name: str) -> None:
+        clip = self._current_clip
+        if clip is None:
+            return
+        kf_attr = f"{name}_keyframes"
+        if not list(getattr(clip, kf_attr, [])):
+            return
+        self._app_controller.timeline_controller.execute_command(
+            UpdatePropertyCommand(target=clip, attribute_name=kf_attr, new_value=[])
+        )
+
+    # --- helpers ----------------------------------------------------------
+
+    def _clip_relative_playhead(self, clip: VideoClip | ImageClip) -> float:
+        # Read from playback_controller (the source that emits
+        # current_time_changed) rather than timeline_controller.playhead_seconds
+        # (a mirror that's only refreshed by timeline_view's handler).  Using
+        # the mirror here would race the slot order on the very signal that
+        # triggers our refresh, leaving the displayed keyframe value one tick
+        # stale every time the user clicks the timeline ruler.
+        absolute = float(self._app_controller.playback_controller.current_time())
+        local = absolute - float(clip.timeline_start)
+        return max(0.0, min(float(clip.duration), local))
+
+    def _pin_state_for(
+        self,
+        clip: VideoClip | ImageClip,
+        name: str,
+        time_in_clip: float,
+    ) -> str:
+        kf_list = list(getattr(clip, f"{name}_keyframes", []))
+        if not kf_list:
+            return "none"
+        if find_keyframe_index(kf_list, time_in_clip) is not None:
+            return "at"
+        return "between"
+
+    def _set_pin_state(self, name: str, state: str) -> None:
+        button = self._pin_buttons[name]
+        if state == "at":
+            button.setText("\u25C6")  # ◆ filled diamond
+            button.setStyleSheet("color: #ffd166;")
+        elif state == "between":
+            button.setText("\u25C7")  # ◇ hollow diamond, accented
+            button.setStyleSheet("color: #ffd166;")
+        else:
+            button.setText("\u25C7")
+            button.setStyleSheet("")
 
     # --- formatting -------------------------------------------------------
 
