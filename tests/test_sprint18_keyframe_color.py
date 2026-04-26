@@ -219,7 +219,7 @@ def _setup_panel():
 def test_pin_click_adds_keyframe_at_playhead() -> None:
     app_controller, clip, panel = _setup_panel()
     try:
-        app_controller.timeline_controller.set_playhead_seconds(1.0)
+        app_controller.playback_controller.seek(1.0)
         panel.slider_for("brightness").setValue(40)  # -> 0.4
         panel._on_pin_clicked("brightness")
         assert len(clip.brightness_keyframes) == 1
@@ -237,7 +237,7 @@ def test_pin_click_at_existing_time_removes_keyframe() -> None:
     app_controller, clip, panel = _setup_panel()
     try:
         clip.brightness_keyframes.append(Keyframe(time_seconds=1.0, value=0.5))
-        app_controller.timeline_controller.set_playhead_seconds(1.0)
+        app_controller.playback_controller.seek(1.0)
         panel._on_pin_clicked("brightness")
         assert clip.brightness_keyframes == []
         app_controller.timeline_controller._command_manager.undo()
@@ -255,7 +255,7 @@ def test_slider_drag_with_keyframes_upserts_at_playhead() -> None:
             Keyframe(time_seconds=0.0, value=0.0),
             Keyframe(time_seconds=2.0, value=0.0),
         ])
-        app_controller.timeline_controller.set_playhead_seconds(1.0)
+        app_controller.playback_controller.seek(1.0)
         # Refresh now picks up the keyframes — the slider should still read 0 at t=1.
         panel._refresh_from_selection()
         slider = panel.slider_for("brightness")
@@ -304,14 +304,14 @@ def test_panel_slider_resyncs_to_keyframe_value_as_playhead_moves() -> None:
             Keyframe(time_seconds=2.0, value=1.0),  # slider max for brightness
         ])
         slider = panel.slider_for("brightness")
-        app_controller.timeline_controller.set_playhead_seconds(0.0)
+        app_controller.playback_controller.seek(0.0)
         panel._refresh_from_selection()
         assert slider.value() == 0
-        app_controller.timeline_controller.set_playhead_seconds(1.0)
+        app_controller.playback_controller.seek(1.0)
         panel._refresh_from_selection()
         # Linear interp at midpoint = 0.5 -> slider value 50.
         assert slider.value() == 50
-        app_controller.timeline_controller.set_playhead_seconds(2.0)
+        app_controller.playback_controller.seek(2.0)
         panel._refresh_from_selection()
         assert slider.value() == 100
     finally:
@@ -464,7 +464,7 @@ def test_slider_drag_with_keyframes_preserves_static_attribute() -> None:
             Keyframe(time_seconds=0.0, value=0.0),
             Keyframe(time_seconds=2.0, value=0.0),
         ])
-        app_controller.timeline_controller.set_playhead_seconds(1.0)
+        app_controller.playback_controller.seek(1.0)
         panel._refresh_from_selection()
         slider = panel.slider_for("brightness")
         # Simulate a press → drag → release.
@@ -480,6 +480,43 @@ def test_slider_drag_with_keyframes_preserves_static_attribute() -> None:
         app_controller.timeline_controller._command_manager.undo()
         assert len(clip.brightness_keyframes) == 2
         assert abs(clip.brightness - 0.3) < 1e-6
+    finally:
+        panel.deleteLater()
+
+
+def test_panel_refreshes_from_playback_controller_signal() -> None:
+    """Regression: clicking the timeline ruler emits
+    playback_controller.current_time_changed but does NOT (immediately) update
+    timeline_controller.playhead_seconds — the latter is a mirror updated by a
+    sibling slot.  EffectsPanel must read the source of truth so the slider
+    reflects the interpolated keyframe value at the new playhead, not the
+    previous tick.
+    """
+    app_controller, clip, panel = _setup_panel()
+    try:
+        clip.brightness_keyframes.extend([
+            Keyframe(time_seconds=0.0, value=-0.4),
+            Keyframe(time_seconds=2.0, value=0.4),
+        ])
+        # Start at t=0 — slider should show the t=0 keyframe (-0.4 -> -40).
+        app_controller.playback_controller.seek(0.0)
+        panel._refresh_from_selection()
+        slider = panel.slider_for("brightness")
+        assert slider.value() == -40
+
+        # Emit only the playback signal, leave timeline_controller's mirror
+        # intentionally stale at 0.0.  This mirrors the runtime ordering when
+        # EffectsPanel's slot fires before timeline_view's sibling slot.
+        app_controller.playback_controller.seek(2.0)
+        # The displayed value at t=2 must be the +0.4 keyframe (40), not -40.
+        assert slider.value() == 40, (
+            f"slider stayed at {slider.value()} after playhead moved to t=2; "
+            "EffectsPanel is reading a stale playhead source"
+        )
+
+        # Midpoint check — interpolation halfway must produce 0.
+        app_controller.playback_controller.seek(1.0)
+        assert slider.value() == 0
     finally:
         panel.deleteLater()
 

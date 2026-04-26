@@ -445,7 +445,13 @@ class EffectsPanel(QWidget):
     # --- helpers ----------------------------------------------------------
 
     def _clip_relative_playhead(self, clip: VideoClip | ImageClip) -> float:
-        absolute = float(self._app_controller.timeline_controller.playhead_seconds())
+        # Read from playback_controller (the source that emits
+        # current_time_changed) rather than timeline_controller.playhead_seconds
+        # (a mirror that's only refreshed by timeline_view's handler).  Using
+        # the mirror here would race the slot order on the very signal that
+        # triggers our refresh, leaving the displayed keyframe value one tick
+        # stale every time the user clicks the timeline ruler.
+        absolute = float(self._app_controller.playback_controller.current_time())
         local = absolute - float(clip.timeline_start)
         return max(0.0, min(float(clip.duration), local))
 
