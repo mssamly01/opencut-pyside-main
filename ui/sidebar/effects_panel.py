@@ -4,7 +4,7 @@ from app.controllers.app_controller import AppController
 from app.domain.clips.base_clip import BaseClip
 from app.domain.clips.image_clip import ImageClip
 from app.domain.clips.video_clip import VideoClip
-from app.domain.commands import UpdatePropertyCommand
+from app.domain.commands import CompositeCommand, UpdatePropertyCommand
 from app.domain.project import Project
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -167,10 +167,24 @@ class EffectsPanel(QWidget):
         clip = self._current_clip
         if clip is None:
             return
-        attr_value = _slider_to_attr(name, slider_value)
-        setattr(clip, name, attr_value)
-        self._update_value_label(name, attr_value)
-        self._app_controller.timeline_controller.timeline_changed.emit()
+        new_attr = _slider_to_attr(name, slider_value)
+        if self._press_value is not None:
+            # Mouse drag in progress: live preview only; the undoable command
+            # is committed once on sliderReleased so the whole drag becomes a
+            # single undo step.
+            setattr(clip, name, new_attr)
+            self._update_value_label(name, new_attr)
+            self._app_controller.timeline_controller.timeline_changed.emit()
+            return
+        # No active drag (keyboard arrow / Page Up-Down / programmatic):
+        # commit each step as its own undoable command so Ctrl+Z works.
+        old_attr = float(getattr(clip, name))
+        if abs(new_attr - old_attr) <= 1e-9:
+            return
+        self._app_controller.timeline_controller.execute_command(
+            UpdatePropertyCommand(target=clip, attribute_name=name, new_value=new_attr)
+        )
+        self._update_value_label(name, new_attr)
 
     def _on_slider_released(self, name: str) -> None:
         clip = self._current_clip
@@ -192,13 +206,18 @@ class EffectsPanel(QWidget):
         clip = self._current_clip
         if clip is None:
             return
+        sub_commands: list[UpdatePropertyCommand] = []
         for name in self._sliders:
             current = float(getattr(clip, name))
             default = _default_attr(name)
             if abs(current - default) > 1e-9:
-                self._app_controller.timeline_controller.execute_command(
+                sub_commands.append(
                     UpdatePropertyCommand(target=clip, attribute_name=name, new_value=default)
                 )
+        if sub_commands:
+            self._app_controller.timeline_controller.execute_command(
+                CompositeCommand(sub_commands)
+            )
         self._refresh_from_selection()
 
     # --- formatting -------------------------------------------------------

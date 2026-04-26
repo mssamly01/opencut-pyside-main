@@ -150,6 +150,34 @@ def test_effects_panel_slider_release_executes_undoable_command() -> None:
         panel.deleteLater()
 
 
+def test_effects_panel_keyboard_change_creates_undo_entry() -> None:
+    """Slider changes outside of mouse drag (keyboard / programmatic) must be undoable."""
+    create_application(["pytest"])
+    context = build_app_context()
+    app_controller = context.app_controller
+    project = app_controller.project_controller.active_project()
+    assert project is not None
+    track = project.timeline.tracks[0]
+    clip = _make_video_clip(clip_id="c-kbd", track_id=track.track_id, duration=2.0)
+    track.clips.append(clip)
+    app_controller.timeline_controller.timeline_changed.emit()
+    app_controller.selection_controller.select_clip(clip.clip_id)
+
+    panel = EffectsPanel(app_controller)
+    try:
+        slider = panel.slider_for("contrast")
+        # No sliderPressed -> simulates keyboard arrow / programmatic setValue.
+        slider.setValue(150)  # 1.5
+        assert abs(clip.contrast - 1.5) < 1e-6
+        # The change must be undoable.
+        app_controller.timeline_controller._command_manager.undo()
+        assert abs(clip.contrast - 1.0) < 1e-6
+        app_controller.timeline_controller._command_manager.redo()
+        assert abs(clip.contrast - 1.5) < 1e-6
+    finally:
+        panel.deleteLater()
+
+
 def test_effects_panel_reset_button_clears_all_attrs() -> None:
     create_application(["pytest"])
     context = build_app_context()
@@ -177,6 +205,13 @@ def test_effects_panel_reset_button_clears_all_attrs() -> None:
         assert clip.contrast == 1.0
         assert clip.saturation == 1.0
         assert clip.hue == 0.0
+        # All four attribute reverts must be a single atomic undo entry,
+        # not four separate commands.
+        app_controller.timeline_controller._command_manager.undo()
+        assert clip.brightness == 0.3
+        assert clip.contrast == 1.4
+        assert clip.saturation == 0.5
+        assert clip.hue == 20.0
     finally:
         panel.deleteLater()
 
