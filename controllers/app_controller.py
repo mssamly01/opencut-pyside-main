@@ -18,6 +18,7 @@ from app.services.media_service import MediaService
 from app.services.playback_service import PlaybackService
 from app.services.project_service import ProjectService
 from app.services.settings_service import SettingsService
+from app.services.subtitle_text_ops import replace_all_in_segments
 from app.services.thumbnail_service import ThumbnailService
 from app.services.waveform_loader import WaveformLoader
 from app.services.waveform_service import WaveformService
@@ -313,6 +314,79 @@ class AppController(QObject):
         self.mark_dirty()
         self.subtitle_library_changed.emit()
         return True
+
+    def replace_all_in_subtitle_entry(
+        self,
+        entry_id: str,
+        find_text: str,
+        replace_text: str,
+        *,
+        case_sensitive: bool = False,
+    ) -> int:
+        """Bulk-replace ``find_text`` with ``replace_text`` across one entry.
+
+        Returns the number of occurrences replaced. Empty replacements that
+        would clear a segment are rejected (matches
+        :meth:`update_subtitle_segment_text` behaviour). Linked timeline
+        clips are kept in sync and a single ``subtitle_library_changed``
+        signal is emitted at the end so the inspector refreshes once.
+        """
+
+        if not find_text:
+            return 0
+        entry = next((item for item in self._subtitle_library if item.entry_id == entry_id), None)
+        if entry is None:
+            return 0
+
+        changes, total = replace_all_in_segments(
+            entry.segments, find_text, replace_text, case_sensitive=case_sensitive
+        )
+        if total == 0:
+            return 0
+
+        # Reject changes that would leave a segment empty after stripping —
+        # the rest of the controller assumes non-empty subtitle text.
+        applied: list[tuple[int, str]] = []
+        for segment_index, new_text in changes:
+            if not (new_text or "").strip():
+                continue
+            applied.append((segment_index, new_text))
+        if not applied:
+            return 0
+
+        for segment_index, new_text in applied:
+            start, end, _existing = entry.segments[segment_index]
+            entry.segments[segment_index] = (start, end, new_text)
+
+            linked_clip_ids = [
+                clip_id
+                for clip_id, link in self._timeline_subtitle_links.items()
+                if link == (entry_id, segment_index)
+            ]
+            for clip_id in linked_clip_ids:
+                self.timeline_controller.update_caption_text(clip_id, new_text)
+
+            if (
+                self._selected_subtitle is not None
+                and self._selected_subtitle.entry_id == entry_id
+                and self._selected_subtitle.segment_index == segment_index
+            ):
+                selected = self._selected_subtitle
+                self._set_selected_subtitle(
+                    SubtitleSegmentSelection(
+                        entry_id=selected.entry_id,
+                        source_name=selected.source_name,
+                        source_path=selected.source_path,
+                        segment_index=selected.segment_index,
+                        start_seconds=selected.start_seconds,
+                        end_seconds=selected.end_seconds,
+                        text=new_text,
+                    )
+                )
+
+        self.mark_dirty()
+        self.subtitle_library_changed.emit()
+        return total
 
     def insert_subtitle_segment_after(self, entry_id: str, segment_index: int) -> bool:
         entry = next((item for item in self._subtitle_library if item.entry_id == entry_id), None)
