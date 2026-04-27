@@ -47,6 +47,7 @@ class MainWindow(QMainWindow):
 
         self._top_bar = TopBar(self)
         self._top_bar.export_requested.connect(self._on_export_project_triggered)
+        self._top_bar.project_name_commit_requested.connect(self._on_top_bar_project_name_committed)
         self._top_bar.minimize_requested.connect(self.showMinimized)
         self._top_bar.maximize_toggle_requested.connect(self._toggle_maximized)
         self._top_bar.maximize_toggle_via_doubleclick_requested.connect(self._toggle_maximized)
@@ -73,6 +74,7 @@ class MainWindow(QMainWindow):
         self._app_controller.timeline_controller.timeline_edited.connect(self._refresh_window_title)
         self._app_controller.timeline_controller.timeline_edited.connect(self._refresh_status_bar)
         self._app_controller.playback_controller.current_time_changed.connect(self._refresh_timecode)
+        self._app_controller.subtitle_selection_changed.connect(self._on_subtitle_selection_changed)
         self._app_controller.export_controller.export_started.connect(self._on_export_started)
         self._app_controller.export_controller.export_progress_changed.connect(self._on_export_progress_changed)
         self._app_controller.export_controller.export_finished.connect(self._on_export_finished)
@@ -611,6 +613,13 @@ class MainWindow(QMainWindow):
         if self._top_bar is not None:
             self._top_bar.set_export_enabled(not is_exporting)
 
+    def _on_subtitle_selection_changed(self) -> None:
+        selected = self._app_controller.selected_subtitle_segment()
+        if selected is None:
+            return
+        self._app_shell.left_rail.select("captions")
+        self._app_shell.left_sidebar_stack.show_category("captions")
+
     def _refresh_status_bar(self, *_args: object) -> None:
         if self._project_info_label is None:
             return
@@ -666,6 +675,10 @@ class MainWindow(QMainWindow):
             return
 
         self.setWindowTitle(f"OpenCut PySide - {project_name}{dirty_suffix}")
+
+    def _on_top_bar_project_name_committed(self, new_name: str) -> None:
+        self._app_controller.rename_active_project(new_name)
+        self._refresh_window_title()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if not self._confirm_discard_unsaved_changes(self.tr("đóng ứng dụng")):

@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 from app.ui.shared.icons import build_icon
-from PySide6.QtCore import QPoint, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QPoint, QSize, Qt, Signal
 from PySide6.QtGui import QAction, QMouseEvent
-from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QMenu, QPushButton, QToolButton, QWidget
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QLineEdit, QMenu, QPushButton, QToolButton, QWidget
 
 
 class TopBar(QWidget):
     """Custom top bar with menu button, project name, and export button."""
 
     export_requested = Signal()
+    project_name_commit_requested = Signal(str)
     minimize_requested = Signal()
     maximize_toggle_requested = Signal()
     close_requested = Signal()
@@ -20,6 +21,9 @@ class TopBar(QWidget):
         super().__init__(parent)
         self.setObjectName("top_bar")
         self.setFixedHeight(32)
+
+        self._project_name_base = self.tr("Không có tiêu đề")
+        self._project_name_committing = False
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 0, 4, 0)
@@ -37,9 +41,17 @@ class TopBar(QWidget):
 
         layout.addStretch(1)
 
-        self._project_name = QLabel(self.tr("Không có tiêu đề"), self)
+        self._project_name = QLineEdit(self._project_name_base, self)
         self._project_name.setObjectName("top_project_name")
         self._project_name.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._project_name.setFrame(False)
+        self._project_name.setMaxLength(180)
+        self._project_name.setFixedHeight(24)
+        self._project_name.setMinimumWidth(180)
+        self._project_name.setReadOnly(True)
+        self._project_name.installEventFilter(self)
+        self._project_name.returnPressed.connect(self._commit_project_name_change)
+        self._project_name.editingFinished.connect(self._on_project_name_edit_finished)
         layout.addWidget(self._project_name)
 
         layout.addStretch(1)
@@ -77,8 +89,6 @@ class TopBar(QWidget):
 
         # Sprint 16-B: drag-to-move tracks press position so we can defer the
         # actual startSystemMove() until the user crosses the drag threshold.
-        # Calling startSystemMove() in mousePressEvent grabs the pointer and
-        # would prevent mouseDoubleClickEvent from ever firing.
         self._drag_press_global: QPoint | None = None
         self._drag_active = False
 
@@ -114,8 +124,10 @@ class TopBar(QWidget):
         self._menu.clear()
 
     def set_project_name(self, name: str, dirty: bool = False) -> None:
-        suffix = " *" if dirty else ""
-        self._project_name.setText((name or self.tr("Không có tiêu đề")) + suffix)
+        self._project_name_base = (name or "").strip() or self.tr("Không có tiêu đề")
+        _ = dirty
+        if self._project_name.isReadOnly():
+            self._refresh_project_name_display()
 
     def set_export_enabled(self, enabled: bool) -> None:
         self._export_button.setEnabled(enabled)
@@ -134,15 +146,45 @@ class TopBar(QWidget):
         child = self.childAt(event.position().toPoint())
         if child is None:
             return True
-        # Allow drag when the press lands on the project-name label or the
-        # bar background; buttons (menu, export, chrome) keep their own clicks.
-        return child is self._project_name
+        return child is self._project_name and self._project_name.isReadOnly()
+
+    def eventFilter(self, watched: object, event: QEvent) -> bool:
+        if watched is self._project_name and event.type() == QEvent.Type.MouseButtonPress:
+            if self._project_name.isReadOnly():
+                self._begin_project_name_edit()
+                event.accept()
+                return True
+        return super().eventFilter(watched, event)
+
+    def _begin_project_name_edit(self) -> None:
+        self._project_name.setReadOnly(False)
+        self._project_name.setText(self._project_name_base)
+        self._project_name.setFocus(Qt.FocusReason.MouseFocusReason)
+        self._project_name.selectAll()
+
+    def _refresh_project_name_display(self) -> None:
+        self._project_name.setText(self._project_name_base)
+        self._project_name.setCursorPosition(0)
+
+    def _on_project_name_edit_finished(self) -> None:
+        self._commit_project_name_change()
+
+    def _commit_project_name_change(self) -> None:
+        if self._project_name.isReadOnly() or self._project_name_committing:
+            return
+        self._project_name_committing = True
+        value = self._project_name.text().strip() or self._project_name_base
+        previous = self._project_name_base
+        self._project_name.setReadOnly(True)
+        self._project_name.clearFocus()
+        if value != previous:
+            self._project_name_base = value
+            self.project_name_commit_requested.emit(value)
+        self._refresh_project_name_display()
+        self._project_name_committing = False
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton and self._is_drag_region(event):
-            # Record the press position; defer startSystemMove() to
-            # mouseMoveEvent so a quick press-release-press double-click
-            # still reaches mouseDoubleClickEvent.
             self._drag_press_global = event.globalPosition().toPoint()
             self._drag_active = False
             event.accept()
@@ -172,8 +214,6 @@ class TopBar(QWidget):
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton and self._is_drag_region(event):
-            # A double-click resets any pending drag state recorded by the
-            # first press so a subsequent move doesn't kick off a system move.
             self._drag_press_global = None
             self._drag_active = False
             self.maximize_toggle_via_doubleclick_requested.emit()

@@ -787,6 +787,18 @@ class TimelineController(QObject):
         self.execute_command(UpdatePropertyCommand(track, "name", new_name))
         return True
 
+    def rename_project(self, new_name: str) -> bool:
+        project = self.active_project()
+        if project is None:
+            return False
+
+        normalized_name = (new_name or "").strip()
+        if not normalized_name or normalized_name == project.name:
+            return False
+
+        self.execute_command(UpdatePropertyCommand(project, "name", normalized_name))
+        return True
+
     def set_track_muted(self, track_id: str, is_muted: bool) -> bool:
         return self._set_track_property(track_id, "is_muted", bool(is_muted))
 
@@ -1498,14 +1510,25 @@ class TimelineController(QObject):
         segments: list[tuple[float, float, str]],
         timeline_offset_seconds: float | None = None,
     ) -> int:
+        created_clip_ids = self.add_caption_segments_with_ids(
+            segments=segments,
+            timeline_offset_seconds=timeline_offset_seconds,
+        )
+        return len(created_clip_ids)
+
+    def add_caption_segments_with_ids(
+        self,
+        segments: list[tuple[float, float, str]],
+        timeline_offset_seconds: float | None = None,
+    ) -> list[str]:
         timeline = self.active_timeline()
         if timeline is None or not segments:
-            return 0
+            return []
 
         self._ensure_main_track_layout(timeline)
         text_track = self._ensure_text_track(timeline)
         if text_track.is_locked:
-            return 0
+            return []
 
         base_offset = max(0.0, self._playhead_seconds if timeline_offset_seconds is None else timeline_offset_seconds)
 
@@ -1557,12 +1580,12 @@ class TimelineController(QObject):
             created_clip_ids.append(clip_id)
 
         if not created_clip_ids:
-            return 0
+            return []
 
         self._selection_controller.select_clip(created_clip_ids[-1])
         self.timeline_changed.emit()
         self.timeline_edited.emit()
-        return len(created_clip_ids)
+        return created_clip_ids
 
     def caption_clips(self) -> list[TextClip]:
         timeline = self.active_timeline()

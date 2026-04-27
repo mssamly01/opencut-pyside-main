@@ -9,6 +9,8 @@ from app.controllers.playback_controller import PlaybackController
 from app.controllers.project_controller import ProjectController
 from app.controllers.selection_controller import SelectionController
 from app.controllers.timeline_controller import TimelineController
+from app.domain.clips.base_clip import BaseClip
+from app.domain.clips.text_clip import TextClip
 from app.services.autosave_service import AutosaveService
 from app.services.caption_service import CaptionService
 from app.services.export_service import ExportService
@@ -66,6 +68,7 @@ class AppController(QObject):
         self.autosave_service = AutosaveService(project_service=self.project_service)
         self._subtitle_library: list[SubtitleLibraryEntry] = []
         self._selected_subtitle: SubtitleSegmentSelection | None = None
+        self._timeline_subtitle_links: dict[str, tuple[str, int]] = {}
         self.project_controller = ProjectController(
             self,
             media_service=self.media_service,
@@ -161,6 +164,9 @@ class AppController(QObject):
             self.note_manual_project_saved()
         return saved_path
 
+    def rename_active_project(self, new_name: str) -> bool:
+        return self.timeline_controller.rename_project(new_name)
+
     def import_subtitles_from_file(self, file_path: str) -> int:
         caption_segments = self.caption_service.parse_file(file_path)
         if not caption_segments:
@@ -250,19 +256,27 @@ class AppController(QObject):
         entry = next((item for item in self._subtitle_library if item.entry_id == entry_id), None)
         if entry is None or not entry.segments:
             return 0
-        imported_count = self.timeline_controller.add_caption_segments(
+        created_clip_ids = self.timeline_controller.add_caption_segments_with_ids(
             segments=entry.segments,
             timeline_offset_seconds=timeline_offset_seconds,
         )
-        if imported_count > 0:
-            self._set_selected_subtitle(None)
-        return imported_count
+        for segment_index, clip_id in enumerate(created_clip_ids):
+            self._timeline_subtitle_links[clip_id] = (entry.entry_id, segment_index)
+        if created_clip_ids:
+            last_segment_index = min(len(created_clip_ids) - 1, len(entry.segments) - 1)
+            self.select_subtitle_segment(entry.entry_id, last_segment_index)
+        return len(created_clip_ids)
 
     def remove_subtitle_entry(self, entry_id: str) -> bool:
         for index, entry in enumerate(self._subtitle_library):
             if entry.entry_id != entry_id:
                 continue
             del self._subtitle_library[index]
+            self._timeline_subtitle_links = {
+                clip_id: link
+                for clip_id, link in self._timeline_subtitle_links.items()
+                if link[0] != entry_id
+            }
             if self._selected_subtitle is not None and self._selected_subtitle.entry_id == entry_id:
                 self._set_selected_subtitle(None)
             self.subtitle_library_changed.emit()
@@ -334,6 +348,8 @@ class AppController(QObject):
         if self._subtitle_library:
             self._subtitle_library = []
             self.subtitle_library_changed.emit()
+        if self._timeline_subtitle_links:
+            self._timeline_subtitle_links = {}
         self._set_selected_subtitle(None)
 
     def _on_project_modified_for_autosave(self) -> None:
@@ -355,8 +371,25 @@ class AppController(QObject):
         self.autosave_completed.emit(autosave_path)
 
     def _on_timeline_selection_changed(self) -> None:
-        if self.selection_controller.selected_clip_id() is None:
+        selected_clip_id = self.selection_controller.selected_clip_id()
+        if selected_clip_id is None:
             return
+
+        linked = self._timeline_subtitle_links.get(selected_clip_id)
+        if linked is not None:
+            entry_id, segment_index = linked
+            self.select_subtitle_segment(entry_id, segment_index)
+            return
+
+        clip = self._find_clip_by_id(selected_clip_id)
+        if isinstance(clip, TextClip):
+            matched = self._match_subtitle_for_clip(clip)
+            if matched is not None:
+                entry_id, segment_index = matched
+                self._timeline_subtitle_links[selected_clip_id] = (entry_id, segment_index)
+                self.select_subtitle_segment(entry_id, segment_index)
+                return
+
         self._set_selected_subtitle(None)
 
     def _set_selected_subtitle(self, selection: SubtitleSegmentSelection | None) -> None:
@@ -364,3 +397,29 @@ class AppController(QObject):
             return
         self._selected_subtitle = selection
         self.subtitle_selection_changed.emit()
+
+    def _find_clip_by_id(self, clip_id: str) -> BaseClip | None:
+        project = self.project_controller.active_project()
+        if project is None:
+            return None
+        for track in project.timeline.tracks:
+            for clip in track.clips:
+                if clip.clip_id == clip_id:
+                    return clip
+        return None
+
+    def _match_subtitle_for_clip(self, clip: TextClip) -> tuple[str, int] | None:
+        clip_text = (clip.content or "").strip()
+        if not clip_text:
+            return None
+
+        clip_duration = max(0.0, float(clip.duration))
+        duration_epsilon = 0.08
+        for entry in self._subtitle_library:
+            for segment_index, (segment_start, segment_end, segment_text) in enumerate(entry.segments):
+                if clip_text != (segment_text or "").strip():
+                    continue
+                segment_duration = max(0.0, float(segment_end) - float(segment_start))
+                if abs(clip_duration - segment_duration) <= duration_epsilon:
+                    return entry.entry_id, segment_index
+        return None

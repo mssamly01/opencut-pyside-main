@@ -221,10 +221,23 @@ QToolButton#top_menu_button:hover {
     background-color: #2c323c;
     border-radius: 4px;
 }
-QLabel#top_project_name {
+QLineEdit#top_project_name {
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
     color: #cdd4dc;
     font-size: 10pt;
     font-weight: 500;
+    padding: 2px 8px;
+}
+QLineEdit#top_project_name:hover {
+    background-color: #1d222a;
+    border-color: #2f3946;
+}
+QLineEdit#top_project_name:focus {
+    background-color: #12171e;
+    border-color: #00bcd4;
+    color: #e6edf3;
 }
 QPushButton#top_export_button {
     background-color: #00bcd4;
@@ -246,10 +259,33 @@ QFrame#timeline_toolbar_sep {
     margin: 4px 6px;
 }
 QLabel#details_title {
-    font-size: 11pt;
-    font-weight: 600;
     color: #e6edf3;
-    padding-bottom: 6px;
+    font-size: 12pt;
+    font-weight: 600;
+    padding: 2px 2px 6px 2px;
+}
+QLineEdit#details_project_name_inline {
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: #e6edf3;
+    font-size: 10pt;
+    font-weight: 500;
+    padding: 2px 6px;
+}
+QLineEdit#details_project_name_inline:hover {
+    background-color: #1d222a;
+    border-color: #2f3946;
+}
+QLineEdit#details_project_name_inline:focus {
+    background-color: #12171e;
+    border-color: #00bcd4;
+}
+QLabel#details_subtitle_title {
+    color: #9eb0c0;
+    font-size: 9pt;
+    font-weight: 600;
+    padding: 2px 2px 4px 2px;
 }
 QFrame#details_separator { color: #3a4452; }
 QLabel#details_key {
