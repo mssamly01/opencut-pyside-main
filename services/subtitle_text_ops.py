@@ -61,24 +61,23 @@ def replace_all_in_segments(
     replace: str,
     *,
     case_sensitive: bool,
-) -> tuple[list[tuple[int, str]], int]:
+) -> list[tuple[int, str, int]]:
     """Apply :func:`replace_all_in_text` to every segment text.
 
-    Returns ``(changes, total_count)`` where ``changes`` is a list of
-    ``(segment_index, new_text)`` tuples covering only segments whose text
-    actually changed.
+    Returns a list of ``(segment_index, new_text, count)`` tuples covering
+    only segments whose text actually changed. The per-segment count lets
+    callers report an accurate total even when some changes are later
+    rejected (e.g. would leave the segment empty).
     """
 
     if not find:
-        return [], 0
+        return []
 
-    changes: list[tuple[int, str]] = []
-    total = 0
+    changes: list[tuple[int, str, int]] = []
     for idx, (_start, _end, text) in enumerate(segments):
         new_text, count = replace_all_in_text(
             text, find, replace, case_sensitive=case_sensitive
         )
         if count > 0:
-            changes.append((idx, new_text))
-            total += count
-    return changes, total
+            changes.append((idx, new_text, count))
+    return changes

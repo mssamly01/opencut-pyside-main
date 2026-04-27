@@ -108,6 +108,43 @@ def test_replace_all_skips_segments_that_would_become_empty(tmp_path: Path):
     assert segments[1][2] == "WORLD goodbye"
 
 
+def test_replace_all_count_excludes_rejected_segment_occurrences(tmp_path: Path):
+    """Mixed valid/rejected case must not inflate the user-facing count.
+
+    Setup: build an entry where one segment contains the find-text twice and
+    another segment is exactly the find-text (so replacement → empty and is
+    rejected). The reported count must be 2, not 3, since only the first
+    segment's two occurrences were actually written back.
+    """
+
+    create_application(["pytest"])
+    controller = AppController()
+    srt_path = tmp_path / "mixed.srt"
+    srt_path.write_text(
+        """\
+1
+00:00:00,000 --> 00:00:01,000
+world world hello
+
+2
+00:00:01,000 --> 00:00:02,000
+world
+""",
+        encoding="utf-8",
+    )
+    controller.import_subtitles_from_file(str(srt_path))
+    entry_id = controller.subtitle_library_entries()[0].entry_id
+
+    count = controller.replace_all_in_subtitle_entry(
+        entry_id, "world", "", case_sensitive=False
+    )
+
+    assert count == 2  # NOT 3 — segment 2's occurrence was rejected
+    segments = controller.subtitle_library_entries()[0].segments
+    assert segments[0][2] == "  hello"  # both occurrences replaced with ""
+    assert segments[1][2] == "world"  # untouched because new_text was empty
+
+
 def test_replace_all_emits_library_changed_once(tmp_path: Path):
     controller, entry_id = _build_controller(tmp_path)
     received: list[None] = []

@@ -338,19 +338,23 @@ class AppController(QObject):
         if entry is None:
             return 0
 
-        changes, total = replace_all_in_segments(
+        changes = replace_all_in_segments(
             entry.segments, find_text, replace_text, case_sensitive=case_sensitive
         )
-        if total == 0:
+        if not changes:
             return 0
 
         # Reject changes that would leave a segment empty after stripping —
-        # the rest of the controller assumes non-empty subtitle text.
+        # the rest of the controller assumes non-empty subtitle text. The
+        # applied total is summed AFTER rejection so the user-facing count
+        # only reflects occurrences that were actually written back.
         applied: list[tuple[int, str]] = []
-        for segment_index, new_text in changes:
+        applied_total = 0
+        for segment_index, new_text, occurrence_count in changes:
             if not (new_text or "").strip():
                 continue
             applied.append((segment_index, new_text))
+            applied_total += occurrence_count
         if not applied:
             return 0
 
@@ -386,7 +390,7 @@ class AppController(QObject):
 
         self.mark_dirty()
         self.subtitle_library_changed.emit()
-        return total
+        return applied_total
 
     def insert_subtitle_segment_after(self, entry_id: str, segment_index: int) -> bool:
         entry = next((item for item in self._subtitle_library if item.entry_id == entry_id), None)
