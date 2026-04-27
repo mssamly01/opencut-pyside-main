@@ -67,3 +67,63 @@ def test_text_edit_does_not_rebuild_subtitle_list(tmp_path: Path) -> None:
     assert items_before == items_after
     # Cached lower-text reflects the edit so future filter queries are correct.
     assert inspector._subtitle_text_lower_cache[3] == "updated line"  # noqa: SLF001
+
+
+def test_long_subtitle_row_uses_taller_size_hint(tmp_path: Path) -> None:
+    """Multi-line / long-wrapping subtitles get a taller QListWidgetItem."""
+
+    create_application(["pytest"])
+    app_controller = AppController()
+    srt_path = tmp_path / "mixed.srt"
+    short_text = "Hi"
+    # Long enough to wrap onto multiple lines at typical inspector widths.
+    long_text = (
+        "This is a very long subtitle line that definitely needs to wrap across "
+        "multiple visual lines inside the narrow inspector panel — it contains "
+        "enough words to overflow a single line at 400 px viewport width."
+    )
+    srt_path.write_text(
+        "1\n00:00:01,000 --> 00:00:02,000\n"
+        f"{short_text}\n\n"
+        "2\n00:00:03,000 --> 00:00:04,000\n"
+        f"{long_text}\n\n",
+        encoding="utf-8",
+    )
+    app_controller.import_subtitles_from_file(str(srt_path))
+
+    inspector = DetailsInspector(app_controller)
+    inspector.set_mode(DetailsInspector.MODE_SUBTITLES)
+    inspector.resize(400, 600)
+    inspector.show()
+
+    short_height = inspector._subtitle_list.item(0).sizeHint().height()  # noqa: SLF001
+    long_height = inspector._subtitle_list.item(1).sizeHint().height()  # noqa: SLF001
+    assert long_height > short_height, (
+        f"long row ({long_height}px) should be taller than short row ({short_height}px)"
+    )
+    # The long row should have at least two lines worth of vertical pixels.
+    assert long_height >= short_height * 2 - 8
+
+
+def test_subtitle_row_preserves_explicit_newlines(tmp_path: Path) -> None:
+    """Multi-line SRT segments keep their newline structure in the cache."""
+
+    create_application(["pytest"])
+    app_controller = AppController()
+    srt_path = tmp_path / "multiline.srt"
+    srt_path.write_text(
+        "1\n00:00:01,000 --> 00:00:02,000\n"
+        "First line\nSecond line\n\n",
+        encoding="utf-8",
+    )
+    app_controller.import_subtitles_from_file(str(srt_path))
+
+    inspector = DetailsInspector(app_controller)
+    inspector.set_mode(DetailsInspector.MODE_SUBTITLES)
+    inspector.resize(400, 300)
+    inspector.show()
+
+    cached = inspector._subtitle_text_cache[0]  # noqa: SLF001
+    assert "\n" in cached, f"newline preserved, got: {cached!r}"
+    assert cached.startswith("First line")
+    assert cached.endswith("Second line")

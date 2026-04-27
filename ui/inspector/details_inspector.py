@@ -14,9 +14,18 @@ from app.services.subtitle_filters import (
     find_reading_speed_outlier_indices,
 )
 from app.ui.shared.icons import build_icon
-from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QCursor, QFocusEvent, QKeyEvent, QKeySequence, QShortcut
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QRect, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import (
+    QAction,
+    QCursor,
+    QFocusEvent,
+    QFontMetrics,
+    QKeyEvent,
+    QKeySequence,
+    QShortcut,
+)
 from PySide6.QtWidgets import (
+    QAbstractScrollArea,
     QCheckBox,
     QDialog,
     QDialogButtonBox,
@@ -27,6 +36,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMenu,
     QMessageBox,
+    QPlainTextEdit,
     QStackedWidget,
     QToolButton,
     QVBoxLayout,
@@ -34,8 +44,15 @@ from PySide6.QtWidgets import (
 )
 
 
-class _SubtitleLineEdit(QLineEdit):
-    """Line editor that commits on focus-out/Enter and reverts on Escape."""
+class _SubtitleLineEdit(QPlainTextEdit):
+    """Multi-line subtitle editor that commits on focus-out and reverts on Escape.
+
+    Mirrors the behaviour of ``SubtitleListItemWidget``'s ``QTextEdit`` in
+    the reference editor: long CJK lines wrap onto multiple lines instead
+    of being truncated visually like in a ``QLineEdit``. ``Enter`` inserts
+    a newline (matches editor_app); committing happens when focus leaves
+    the field or ``Escape`` reverts.
+    """
 
     commit_requested = Signal(str)
     revert_requested = Signal()
@@ -44,7 +61,23 @@ class _SubtitleLineEdit(QLineEdit):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._committed = False
-        self.editingFinished.connect(self._on_editing_finished)
+        # Configure for inline-edit appearance: no scrollbars, word wrap on,
+        # tight padding handled by stylesheet.
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustIgnored)
+        self.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+        self.setWordWrapMode(self.wordWrapMode())  # honour layout default
+        self.setFrameShape(QPlainTextEdit.Shape.NoFrame)
+        self.setTabChangesFocus(True)
+
+    def text(self) -> str:
+        """Compatibility shim mirroring ``QLineEdit.text``."""
+
+        return self.toPlainText()
+
+    def setText(self, value: str) -> None:  # noqa: N802 - mirror QLineEdit API
+        self.setPlainText(value)
 
     def focusInEvent(self, event: QFocusEvent) -> None:  # noqa: N802
         self._committed = False
@@ -72,7 +105,7 @@ class _SubtitleLineEdit(QLineEdit):
         if self._committed:
             return
         self._committed = True
-        self.commit_requested.emit(self.text())
+        self.commit_requested.emit(self.toPlainText())
 
 
 class _SubtitleListRowWidget(QWidget):
@@ -84,13 +117,25 @@ class _SubtitleListRowWidget(QWidget):
     delete_requested = Signal()
     hover_requested = Signal(object)
 
-    def __init__(self, line_number: int, text: str, parent: QWidget | None = None) -> None:
+    # Vertical chrome around the editable text inside a row: top/bottom
+    # layout margins + bottom border. Used by DetailsInspector to translate
+    # between the text-edit pixel height and the QListWidgetItem sizeHint.
+    ROW_VERTICAL_CHROME = 8 + 8 + 1
+
+    def __init__(
+        self,
+        line_number: int,
+        text: str,
+        text_height: int,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("details_subtitle_row")
+        # Preserve newlines so multi-line subtitles render as multiple
+        # lines in the editor; only collapse leading/trailing whitespace.
         self._original_text = (text or "").strip() or "-"
         self._hovered = False
         self.setProperty("hovered", False)
-        self.setMinimumHeight(44)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         self.setMouseTracking(True)
@@ -101,8 +146,8 @@ class _SubtitleListRowWidget(QWidget):
 
         self._index_label = QLabel(str(line_number), self)
         self._index_label.setObjectName("details_subtitle_row_index")
-        self._index_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter)
-        layout.addWidget(self._index_label)
+        self._index_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
+        layout.addWidget(self._index_label, 0, Qt.AlignmentFlag.AlignTop)
 
         self._text_edit = _SubtitleLineEdit(self)
         self._text_edit.setObjectName("details_subtitle_row_text")
@@ -111,6 +156,7 @@ class _SubtitleListRowWidget(QWidget):
         self._text_edit.revert_requested.connect(self._on_revert)
         self._text_edit.focus_received.connect(self.focus_requested.emit)
         layout.addWidget(self._text_edit, 1)
+        self.apply_text_height(text_height)
 
         self._add_button = QToolButton(self)
         self._add_button.setObjectName("details_subtitle_row_add")
@@ -119,7 +165,7 @@ class _SubtitleListRowWidget(QWidget):
         self._add_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self._add_button.setToolTip("")
         self._add_button.clicked.connect(self.add_requested.emit)
-        layout.addWidget(self._add_button)
+        layout.addWidget(self._add_button, 0, Qt.AlignmentFlag.AlignTop)
 
         self._delete_button = QToolButton(self)
         self._delete_button.setObjectName("details_subtitle_row_delete")
@@ -130,7 +176,7 @@ class _SubtitleListRowWidget(QWidget):
         self._delete_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self._delete_button.setToolTip("")
         self._delete_button.clicked.connect(self.delete_requested.emit)
-        layout.addWidget(self._delete_button)
+        layout.addWidget(self._delete_button, 0, Qt.AlignmentFlag.AlignTop)
 
         self._hover_watch_widgets = (
             self._index_label,
@@ -182,6 +228,18 @@ class _SubtitleListRowWidget(QWidget):
         self._text_edit.setText(normalized)
         self._text_edit.blockSignals(False)
         self._text_edit.reset_committed_flag()
+
+    def apply_text_height(self, text_height: int) -> None:
+        """Resize the inner text edit to ``text_height`` pixels.
+
+        Called by ``DetailsInspector`` so each row hugs its (potentially
+        multi-line) content. The total row height is ``text_height +
+        ROW_VERTICAL_CHROME``.
+        """
+
+        text_height = max(20, int(text_height))
+        self._text_edit.setFixedHeight(text_height)
+        self.setMinimumHeight(text_height + self.ROW_VERTICAL_CHROME)
 
     def _on_commit(self, value: str) -> None:
         normalized = (value or "").strip()
@@ -375,11 +433,20 @@ class DetailsInspector(QWidget):
         self._subtitle_list_refreshing = False
         self._subtitle_text_cache: list[str] = []
         self._subtitle_text_lower_cache: list[str] = []
+        # Per-row pixel height of the inner text edit, parallel to
+        # ``_subtitle_rows``. Computed lazily from text content + viewport
+        # width so multi-line subtitles get a tall enough row to render
+        # without clipping.
+        self._subtitle_text_heights: list[int] = []
         self._active_subtitle_entry_id: str | None = None
         self._attached_widget_rows: set[int] = set()
-        # Estimated row height (incl. margins) used for sizeHint and visible-row math.
-        # Matches _SubtitleListRowWidget minimum height + list item padding.
-        self._subtitle_row_height: int = 44 + 8
+        # Default row height used as a fallback when ``indexAt`` can't
+        # resolve the visible range (e.g. before first paint). Matches the
+        # height of a single-line text edit + chrome.
+        self._subtitle_row_height: int = 28 + _SubtitleListRowWidget.ROW_VERTICAL_CHROME
+        # Cached viewport width used for height computation; -1 forces a
+        # recompute on the first measurement pass.
+        self._subtitle_viewport_width: int = -1
         # Buffer of rows above/below viewport that keep their widgets attached, so
         # small scrolls don't churn widgets.
         self._subtitle_row_buffer: int = 12
@@ -465,7 +532,10 @@ class DetailsInspector(QWidget):
         self._subtitle_list.setObjectName("details_subtitle_list")
         self._subtitle_list.setAlternatingRowColors(False)
         self._subtitle_list.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
-        self._subtitle_list.setUniformItemSizes(True)
+        # Rows have variable heights (multi-line text wraps), so the
+        # uniform-size optimisation must stay off — leaving it on would
+        # cause QListWidget to reuse the first row's height for all rows.
+        self._subtitle_list.setUniformItemSizes(False)
         self._subtitle_list.setMouseTracking(True)
         self._subtitle_list.viewport().setMouseTracking(True)
         self._subtitle_list.viewport().setAttribute(Qt.WidgetAttribute.WA_Hover, True)
@@ -546,7 +616,47 @@ class DetailsInspector(QWidget):
                 self._clear_subtitle_row_hover_states()
             elif event_type in {QEvent.Type.MouseMove, QEvent.Type.HoverMove}:
                 self._sync_subtitle_row_hover_from_cursor()
+            elif event_type == QEvent.Type.Resize:
+                self._on_subtitle_viewport_resized()
         return super().eventFilter(watched, event)
+
+    def _on_subtitle_viewport_resized(self) -> None:
+        """Recompute per-row heights when the viewport width changes.
+
+        Word-wrapping depends on the available text-edit width, so a
+        narrower/wider panel produces different row heights. The check
+        against the cached width avoids redundant recomputes for height-
+        only resizes (e.g. window vertical resize).
+        """
+
+        if not self._subtitle_rows:
+            self._subtitle_viewport_width = self._subtitle_list.viewport().width()
+            return
+        new_width = self._subtitle_list.viewport().width()
+        if new_width <= 0 or new_width == self._subtitle_viewport_width:
+            return
+        self._subtitle_viewport_width = new_width
+        available_width = self._subtitle_text_available_width()
+        for row, text in enumerate(self._subtitle_text_cache):
+            text_height = self._compute_text_block_height(text, available_width)
+            if row < len(self._subtitle_text_heights):
+                self._subtitle_text_heights[row] = text_height
+            else:
+                self._subtitle_text_heights.append(text_height)
+            item = self._subtitle_list.item(row)
+            if item is not None:
+                item.setSizeHint(
+                    QSize(0, text_height + _SubtitleListRowWidget.ROW_VERTICAL_CHROME)
+                )
+        for row in tuple(self._attached_widget_rows):
+            item = self._subtitle_list.item(row)
+            if item is None:
+                continue
+            widget = self._subtitle_list.itemWidget(item)
+            if isinstance(widget, _SubtitleListRowWidget) and 0 <= row < len(
+                self._subtitle_text_heights
+            ):
+                widget.apply_text_height(self._subtitle_text_heights[row])
 
     def _begin_title_edit(self) -> None:
         if not self._title_edit_allowed:
@@ -730,6 +840,7 @@ class DetailsInspector(QWidget):
             self._subtitle_rows = []
             self._subtitle_text_cache = []
             self._subtitle_text_lower_cache = []
+            self._subtitle_text_heights = []
             self._attached_widget_rows.clear()
             self._active_subtitle_entry_id = None
             # Quality-filter row indices are invalidated by an entry switch or
@@ -741,20 +852,27 @@ class DetailsInspector(QWidget):
                 return
 
             self._active_subtitle_entry_id = entry.entry_id
-            placeholder_size = QSize(0, self._subtitle_row_height)
+            available_width = self._subtitle_text_available_width()
 
             for segment_index, (_segment_start, _segment_end, segment_text) in enumerate(entry.segments):
-                clean_text = (segment_text or "").replace("\n", " ").strip() or "-"
+                # Preserve newlines so multi-line SRT segments render as
+                # multiple lines in the editor; only collapse leading and
+                # trailing whitespace.
+                clean_text = (segment_text or "").strip() or "-"
+                text_height = self._compute_text_block_height(clean_text, available_width)
 
                 list_item = QListWidgetItem()
                 list_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
                 list_item.setToolTip("")
-                list_item.setSizeHint(placeholder_size)
+                list_item.setSizeHint(
+                    QSize(0, text_height + _SubtitleListRowWidget.ROW_VERTICAL_CHROME)
+                )
                 self._subtitle_list.addItem(list_item)
 
                 self._subtitle_rows.append((entry.entry_id, segment_index))
                 self._subtitle_text_cache.append(clean_text)
                 self._subtitle_text_lower_cache.append(clean_text.lower())
+                self._subtitle_text_heights.append(text_height)
 
             if not self._subtitle_rows:
                 return
@@ -1231,8 +1349,11 @@ class DetailsInspector(QWidget):
             if 0 <= row < len(self._subtitle_text_cache)
             else (self._subtitle_text(entry_id, segment_index) or "-")
         )
+        text_height = self._row_text_height(row, text)
 
-        widget = _SubtitleListRowWidget(segment_index + 1, text, self._subtitle_list)
+        widget = _SubtitleListRowWidget(
+            segment_index + 1, text, text_height, self._subtitle_list
+        )
         widget.text_commit_requested.connect(
             lambda value, eid=entry_id, idx=segment_index: self._on_subtitle_text_committed(
                 eid,
@@ -1251,8 +1372,9 @@ class DetailsInspector(QWidget):
         )
         widget.hover_requested.connect(self._on_subtitle_row_hover_requested)
         self._subtitle_list.setItemWidget(item, widget)
-        # Keep size hint stable so geometry math remains predictable.
-        item.setSizeHint(QSize(0, self._subtitle_row_height))
+        item.setSizeHint(
+            QSize(0, text_height + _SubtitleListRowWidget.ROW_VERTICAL_CHROME)
+        )
         self._attached_widget_rows.add(row)
 
     def _detach_subtitle_widget(self, row: int) -> None:
@@ -1261,21 +1383,41 @@ class DetailsInspector(QWidget):
         item = self._subtitle_list.item(row)
         if item is not None:
             self._subtitle_list.removeItemWidget(item)
-            item.setSizeHint(QSize(0, self._subtitle_row_height))
+            # Keep the per-row sizeHint we computed at ingestion so the
+            # scroll geometry stays consistent for off-screen rows.
+            text_height = (
+                self._subtitle_text_heights[row]
+                if 0 <= row < len(self._subtitle_text_heights)
+                else max(20, self._subtitle_row_height - _SubtitleListRowWidget.ROW_VERTICAL_CHROME)
+            )
+            item.setSizeHint(
+                QSize(0, text_height + _SubtitleListRowWidget.ROW_VERTICAL_CHROME)
+            )
         self._attached_widget_rows.discard(row)
 
     def _update_subtitle_caches_in_place(self, entry: object) -> None:
         segments = getattr(entry, "segments", []) or []
         if len(segments) != len(self._subtitle_rows):
             return
+        available_width = self._subtitle_text_available_width()
         for row, (_segment_start, _segment_end, segment_text) in enumerate(segments):
-            clean_text = (segment_text or "").replace("\n", " ").strip() or "-"
+            clean_text = (segment_text or "").strip() or "-"
+            text_height = self._compute_text_block_height(clean_text, available_width)
             if row < len(self._subtitle_text_cache):
                 self._subtitle_text_cache[row] = clean_text
                 self._subtitle_text_lower_cache[row] = clean_text.lower()
             else:
                 self._subtitle_text_cache.append(clean_text)
                 self._subtitle_text_lower_cache.append(clean_text.lower())
+            if row < len(self._subtitle_text_heights):
+                self._subtitle_text_heights[row] = text_height
+            else:
+                self._subtitle_text_heights.append(text_height)
+            item = self._subtitle_list.item(row)
+            if item is not None:
+                item.setSizeHint(
+                    QSize(0, text_height + _SubtitleListRowWidget.ROW_VERTICAL_CHROME)
+                )
 
     def _refresh_attached_subtitle_widgets(self) -> None:
         """Push cached text into already-attached widgets without rebuilding the list."""
@@ -1288,6 +1430,49 @@ class DetailsInspector(QWidget):
                 continue
             if 0 <= row < len(self._subtitle_text_cache):
                 widget.set_text(self._subtitle_text_cache[row])
+            if 0 <= row < len(self._subtitle_text_heights):
+                widget.apply_text_height(self._subtitle_text_heights[row])
+
+    def _subtitle_text_available_width(self) -> int:
+        """Width in px available to the inner text edit of a row widget.
+
+        Subtracts the row's left/right margins, the index label, the two
+        action buttons, the layout spacing, and a small QPlainTextEdit
+        document margin so wrap geometry matches what the user sees.
+        """
+
+        viewport = self._subtitle_list.viewport()
+        viewport_width = viewport.width()
+        if viewport_width <= 0:
+            viewport_width = self._subtitle_list.width()
+        # Layout: 12 (left margin) + 26 (index) + 8 + text + 8 + 18 (add)
+        # + 8 + 18 (delete) + 10 (right margin) + ~6 doc margin / scrollbar.
+        chrome = 12 + 26 + 8 + 8 + 18 + 8 + 18 + 10 + 6
+        return max(60, viewport_width - chrome)
+
+    def _compute_text_block_height(self, text: str, available_width: int) -> int:
+        """Pixel height needed to render ``text`` with word-wrap at the given width."""
+
+        metrics = QFontMetrics(self._subtitle_list.font())
+        line_height = metrics.lineSpacing()
+        if available_width <= 0:
+            available_width = 1
+        bounding = metrics.boundingRect(
+            QRect(0, 0, available_width, 1 << 20),
+            int(Qt.TextFlag.TextWordWrap),
+            text,
+        )
+        # Add a small pad so the cursor / descender of the last line
+        # isn't clipped, and clamp to at least one line so empty rows
+        # still render.
+        return max(line_height, bounding.height()) + 4
+
+    def _row_text_height(self, row: int, text: str) -> int:
+        if 0 <= row < len(self._subtitle_text_heights):
+            return self._subtitle_text_heights[row]
+        return self._compute_text_block_height(
+            text, self._subtitle_text_available_width()
+        )
 
     def _subtitle_text(self, entry_id: str, segment_index: int) -> str | None:
         entry = next(
