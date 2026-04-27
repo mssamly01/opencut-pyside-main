@@ -41,15 +41,21 @@ class CaptionService:
     _TIMESTAMP_RE = re.compile(r"^(?:(\d+):)?(\d{1,2}):(\d{2})(?:[.,](\d{1,3}))?$")
 
     # Encodings tried in order when the file isn't valid UTF-8.
-    # Order matters: ``cp1252`` and ``latin-1`` accept almost any byte
-    # stream so anything stricter must run first or those strings would
-    # silently decode CJK/Cyrillic content into mojibake. The chosen order
-    # — utf-8 (with/without BOM) → gbk → cp1252 → latin-1 — picks up the
-    # common Aegisub/Notepad export defaults across CN, EU, and US users
-    # while keeping a never-raises safety net at the end.
+    # Order matters:
+    # * ``utf-8-sig`` runs before ``utf-8`` so the BOM is stripped instead
+    #   of leaking into the decoded string as ``\ufeff`` (plain ``utf-8``
+    #   accepts a leading BOM but keeps it as a real character, which then
+    #   breaks timestamp parsing if the SRT has no index line).
+    # * ``cp1252`` and ``latin-1`` accept almost any byte stream so anything
+    #   stricter must run first or CJK content would silently become
+    #   mojibake (你好 → ÄãºÃ).
+    # * ``gbk`` is stricter than ``cp1252`` (lead-byte 0x81-0xFE must be
+    #   followed by a byte ≥ 0x40) so it goes before ``cp1252``.
+    # * ``latin-1`` is last and never raises — the loop is therefore
+    #   guaranteed to return a string for any existing file.
     _ENCODING_FALLBACKS: tuple[str, ...] = (
-        "utf-8",
         "utf-8-sig",
+        "utf-8",
         "gbk",
         "cp1252",
         "latin-1",
@@ -72,10 +78,9 @@ class CaptionService:
 
         SRT files in the wild are saved with whatever default the user's OS
         uses (utf-8, utf-8 with BOM, cp1252 on Western Windows, gbk on
-        Chinese Windows, …). Trying utf-8 first then falling back keeps
-        the happy path identical and only loosens behaviour for legacy
-        files. The final ``latin-1`` decode never raises so this method
-        always returns a string for an existing file.
+        Chinese Windows, …). The loop ends on ``latin-1`` which accepts
+        every byte value, so this method always returns a string for any
+        existing file.
         """
 
         data = path.read_bytes()
@@ -84,10 +89,12 @@ class CaptionService:
                 return data.decode(encoding)
             except UnicodeDecodeError:
                 continue
-        # Should be unreachable since latin-1 accepts every byte, but keep
-        # an explicit fallback so a future edit to the ladder can't
-        # accidentally drop the safety net.
-        return data.decode("latin-1", errors="replace")
+        # Unreachable: ``latin-1`` is the last fallback and accepts any
+        # byte value, so the loop above always returns. Raise instead of
+        # silently returning an empty string if the invariant ever breaks.
+        raise AssertionError(
+            "_ENCODING_FALLBACKS must end with an encoding that never raises"
+        )
 
     def parse_srt(self, text: str) -> list[CaptionSegment]:
         lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")

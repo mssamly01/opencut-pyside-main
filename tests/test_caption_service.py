@@ -110,6 +110,29 @@ def test_parse_file_decodes_utf8_with_bom(tmp_path: Path) -> None:
     assert segments[0].text == "Hello"
 
 
+def test_parse_file_strips_utf8_bom_when_first_line_is_timestamp(tmp_path: Path) -> None:
+    """A BOM-prefixed SRT that omits the numeric index line still parses.
+
+    The plain ``utf-8`` codec accepts the BOM but leaves it as ``\\ufeff``
+    in the decoded string, which then prefixes the timestamp and makes the
+    regex fail. Trying ``utf-8-sig`` first strips the BOM correctly.
+    """
+
+    srt_path = tmp_path / "bom_no_index.srt"
+    # Note: no leading "1\n" — the timestamp is the first line.
+    _write_bytes(
+        srt_path,
+        "00:00:01,000 --> 00:00:02,000\nHello\n",
+        "utf-8-sig",
+    )
+
+    segments = CaptionService().parse_file(str(srt_path))
+
+    assert len(segments) == 1
+    assert segments[0].text == "Hello"
+    assert "\ufeff" not in segments[0].text
+
+
 def test_parse_file_decodes_cp1252(tmp_path: Path) -> None:
     """Western Windows default encoding for legacy SRT files."""
 
