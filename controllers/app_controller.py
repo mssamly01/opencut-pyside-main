@@ -69,6 +69,7 @@ class AppController(QObject):
         self._subtitle_library: list[SubtitleLibraryEntry] = []
         self._selected_subtitle: SubtitleSegmentSelection | None = None
         self._timeline_subtitle_links: dict[str, tuple[str, int]] = {}
+        self._subtitle_project_ref: object | None = None
         self.project_controller = ProjectController(
             self,
             media_service=self.media_service,
@@ -167,6 +168,9 @@ class AppController(QObject):
     def rename_active_project(self, new_name: str) -> bool:
         return self.timeline_controller.rename_project(new_name)
 
+    def rename_clip(self, clip_id: str, new_name: str) -> bool:
+        return self.timeline_controller.rename_clip(clip_id, new_name)
+
     def import_subtitles_from_file(self, file_path: str) -> int:
         caption_segments = self.caption_service.parse_file(file_path)
         if not caption_segments:
@@ -247,6 +251,48 @@ class AppController(QObject):
                 text=text,
             )
         )
+
+    def update_subtitle_segment_text(self, entry_id: str, segment_index: int, new_text: str) -> bool:
+        normalized_text = (new_text or "").strip()
+        if not normalized_text:
+            return False
+
+        entry = next((item for item in self._subtitle_library if item.entry_id == entry_id), None)
+        if entry is None:
+            return False
+        if segment_index < 0 or segment_index >= len(entry.segments):
+            return False
+
+        segment_start, segment_end, existing_text = entry.segments[segment_index]
+        if normalized_text == (existing_text or "").strip():
+            return False
+        entry.segments[segment_index] = (segment_start, segment_end, normalized_text)
+
+        linked_clip_ids = [
+            clip_id
+            for clip_id, link in self._timeline_subtitle_links.items()
+            if link == (entry_id, segment_index)
+        ]
+        for clip_id in linked_clip_ids:
+            self.timeline_controller.update_caption_text(clip_id, normalized_text)
+
+        if self._selected_subtitle is not None:
+            selected = self._selected_subtitle
+            if selected.entry_id == entry_id and selected.segment_index == segment_index:
+                self._set_selected_subtitle(
+                    SubtitleSegmentSelection(
+                        entry_id=selected.entry_id,
+                        source_name=selected.source_name,
+                        source_path=selected.source_path,
+                        segment_index=selected.segment_index,
+                        start_seconds=selected.start_seconds,
+                        end_seconds=selected.end_seconds,
+                        text=normalized_text,
+                    )
+                )
+
+        self.subtitle_library_changed.emit()
+        return True
 
     def load_subtitle_entry_to_timeline(
         self,
@@ -345,6 +391,11 @@ class AppController(QObject):
         self._autosave_edit_timer.stop()
 
     def _on_project_changed_for_subtitles(self) -> None:
+        project = self.project_controller.active_project()
+        if project is self._subtitle_project_ref:
+            return
+        self._subtitle_project_ref = project
+
         if self._subtitle_library:
             self._subtitle_library = []
             self.subtitle_library_changed.emit()

@@ -266,20 +266,21 @@ QLabel#details_title {
 }
 QLineEdit#details_project_name_inline {
     background-color: transparent;
-    border: 1px solid transparent;
-    border-radius: 4px;
+    border: none;
+    border-radius: 5px;
     color: #e6edf3;
-    font-size: 10pt;
-    font-weight: 500;
-    padding: 2px 6px;
+    font-size: 13pt;
+    font-weight: 700;
+    padding: 4px 6px;
+    selection-background-color: #00bcd4;
+    selection-color: #0e1116;
 }
-QLineEdit#details_project_name_inline:hover {
+QLineEdit#details_project_name_inline:read-only:hover {
     background-color: #1d222a;
-    border-color: #2f3946;
 }
 QLineEdit#details_project_name_inline:focus {
     background-color: #12171e;
-    border-color: #00bcd4;
+    border: 1px solid #00bcd4;
 }
 QLabel#details_subtitle_title {
     color: #9eb0c0;
@@ -305,6 +306,11 @@ QPushButton#inspector_toggle_button {
     font-size: 11px;
 }
 QPushButton#inspector_toggle_button:checked {
+    background-color: #00bcd4;
+    color: #0e1116;
+    border-color: #00bcd4;
+}
+QPushButton#inspector_toggle_button:checked:disabled {
     background-color: #00bcd4;
     color: #0e1116;
     border-color: #00bcd4;

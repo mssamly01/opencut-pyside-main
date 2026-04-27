@@ -799,6 +799,25 @@ class TimelineController(QObject):
         self.execute_command(UpdatePropertyCommand(project, "name", normalized_name))
         return True
 
+    def rename_clip(self, clip_id: str, new_name: str) -> bool:
+        timeline = self.active_timeline()
+        if timeline is None:
+            return False
+
+        try:
+            track, clip = self._find_clip_with_track(timeline, clip_id)
+        except ValueError:
+            return False
+        if track.is_locked:
+            return False
+
+        normalized_name = (new_name or "").strip()
+        if not normalized_name or normalized_name == clip.name:
+            return False
+
+        self.execute_command(UpdatePropertyCommand(clip, "name", normalized_name))
+        return True
+
     def set_track_muted(self, track_id: str, is_muted: bool) -> bool:
         return self._set_track_property(track_id, "is_muted", bool(is_muted))
 
