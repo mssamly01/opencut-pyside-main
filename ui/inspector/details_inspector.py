@@ -735,6 +735,7 @@ class DetailsInspector(QWidget):
             self._subtitle_rows = []
             self._subtitle_text_cache = []
             self._subtitle_text_lower_cache = []
+            self._subtitle_text_heights = []
             self._attached_widget_rows.clear()
             self._active_subtitle_entry_id = None
             self._reset_quality_filter()
