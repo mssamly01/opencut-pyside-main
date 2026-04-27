@@ -8,6 +8,7 @@ license = { text = "MIT" }
 authors = [{ name = "opencut-pyside contributors" }]
 dependencies = [
     "PySide6>=6.6",
+    "psutil>=5.9",
 ]
 
 [project.optional-dependencies]

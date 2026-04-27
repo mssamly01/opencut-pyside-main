@@ -126,6 +126,25 @@ class VideoDecoder:
 
         return decoded_frames
 
+    def cache_size(self) -> int:
+        """Return the number of frames currently cached."""
+
+        return len(self._frame_cache)
+
+    def shrink_cache_to(self, target_count: int) -> int:
+        """Evict oldest frames until at most ``target_count`` remain.
+
+        Returns the number of entries evicted. Used by the memory guard to
+        release RAM when the system is under pressure.
+        """
+
+        target = max(0, int(target_count))
+        evicted = 0
+        while len(self._frame_cache) > target:
+            self._frame_cache.popitem(last=False)
+            evicted += 1
+        return evicted
+
     def put_frame(
         self,
         media_path: str,
