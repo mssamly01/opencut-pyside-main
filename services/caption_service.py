@@ -40,9 +40,24 @@ class CaptionService:
     _TIME_RANGE_MARKER = "-->"
     _TIMESTAMP_RE = re.compile(r"^(?:(\d+):)?(\d{1,2}):(\d{2})(?:[.,](\d{1,3}))?$")
 
+    # Encodings tried in order when the file isn't valid UTF-8.
+    # Order matters: ``cp1252`` and ``latin-1`` accept almost any byte
+    # stream so anything stricter must run first or those strings would
+    # silently decode CJK/Cyrillic content into mojibake. The chosen order
+    # — utf-8 (with/without BOM) → gbk → cp1252 → latin-1 — picks up the
+    # common Aegisub/Notepad export defaults across CN, EU, and US users
+    # while keeping a never-raises safety net at the end.
+    _ENCODING_FALLBACKS: tuple[str, ...] = (
+        "utf-8",
+        "utf-8-sig",
+        "gbk",
+        "cp1252",
+        "latin-1",
+    )
+
     def parse_file(self, file_path: str) -> list[CaptionSegment]:
         source_path = Path(file_path).expanduser().resolve()
-        raw_text = source_path.read_text(encoding="utf-8")
+        raw_text = self._read_text_with_encoding_fallback(source_path)
 
         suffix = source_path.suffix.lower()
         if suffix == ".srt":
@@ -50,6 +65,29 @@ class CaptionService:
         if suffix == ".vtt":
             return self.parse_vtt(raw_text)
         raise ValueError(f"Unsupported subtitle file format: '{source_path.suffix}'")
+
+    @classmethod
+    def _read_text_with_encoding_fallback(cls, path: Path) -> str:
+        """Decode ``path`` using a small set of common subtitle encodings.
+
+        SRT files in the wild are saved with whatever default the user's OS
+        uses (utf-8, utf-8 with BOM, cp1252 on Western Windows, gbk on
+        Chinese Windows, …). Trying utf-8 first then falling back keeps
+        the happy path identical and only loosens behaviour for legacy
+        files. The final ``latin-1`` decode never raises so this method
+        always returns a string for an existing file.
+        """
+
+        data = path.read_bytes()
+        for encoding in cls._ENCODING_FALLBACKS:
+            try:
+                return data.decode(encoding)
+            except UnicodeDecodeError:
+                continue
+        # Should be unreachable since latin-1 accepts every byte, but keep
+        # an explicit fallback so a future edit to the ladder can't
+        # accidentally drop the safety net.
+        return data.decode("latin-1", errors="replace")
 
     def parse_srt(self, text: str) -> list[CaptionSegment]:
         lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
