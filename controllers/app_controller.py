@@ -227,6 +227,12 @@ class AppController(QObject):
     def selected_subtitle_segment(self) -> SubtitleSegmentSelection | None:
         return self._selected_subtitle
 
+    def is_subtitle_segment_loaded_on_timeline(self, entry_id: str, segment_index: int) -> bool:
+        return any(
+            linked_entry_id == entry_id and linked_segment_index == segment_index
+            for linked_entry_id, linked_segment_index in self._timeline_subtitle_links.values()
+        )
+
     def select_subtitle_segment(self, entry_id: str | None, segment_index: int | None = None) -> None:
         if entry_id is None or segment_index is None:
             self._set_selected_subtitle(None)
@@ -273,6 +279,19 @@ class AppController(QObject):
             for clip_id, link in self._timeline_subtitle_links.items()
             if link == (entry_id, segment_index)
         ]
+        entry_is_loaded_on_timeline = any(
+            linked_entry_id == entry_id
+            for linked_entry_id, _linked_segment_index in self._timeline_subtitle_links.values()
+        )
+        if not linked_clip_ids and entry_is_loaded_on_timeline:
+            created_clip_ids = self.timeline_controller.add_caption_segments_with_ids(
+                segments=[(segment_start, segment_end, normalized_text)],
+                timeline_offset_seconds=0.0,
+            )
+            if created_clip_ids:
+                self._timeline_subtitle_links[created_clip_ids[0]] = (entry_id, segment_index)
+                linked_clip_ids = created_clip_ids
+
         for clip_id in linked_clip_ids:
             self.timeline_controller.update_caption_text(clip_id, normalized_text)
 
@@ -291,6 +310,109 @@ class AppController(QObject):
                     )
                 )
 
+        self.mark_dirty()
+        self.subtitle_library_changed.emit()
+        return True
+
+    def insert_subtitle_segment_after(self, entry_id: str, segment_index: int) -> bool:
+        entry = next((item for item in self._subtitle_library if item.entry_id == entry_id), None)
+        if entry is None:
+            return False
+        if segment_index < 0 or segment_index >= len(entry.segments):
+            return False
+
+        current_start, current_end, _current_text = entry.segments[segment_index]
+        _ = current_start
+        default_duration = 1.5
+        min_duration = 0.2
+        insertion_index = segment_index + 1
+        candidate_start = max(0.0, float(current_end))
+
+        # Find the nearest available gap after the current segment without overlap.
+        while insertion_index < len(entry.segments):
+            next_start, next_end, _next_text = entry.segments[insertion_index]
+            gap = float(next_start) - candidate_start
+            if gap >= min_duration:
+                break
+            candidate_start = max(candidate_start, float(next_end))
+            insertion_index += 1
+
+        if insertion_index < len(entry.segments):
+            next_start = float(entry.segments[insertion_index][0])
+            duration = min(default_duration, max(min_duration, next_start - candidate_start))
+            segment_end = candidate_start + duration
+        else:
+            segment_end = candidate_start + default_duration
+
+        entry.segments.insert(insertion_index, (candidate_start, segment_end, ""))
+
+        self._timeline_subtitle_links = {
+            clip_id: (
+                linked_entry_id,
+                linked_segment_index + 1
+                if linked_entry_id == entry_id and linked_segment_index >= insertion_index
+                else linked_segment_index,
+            )
+            for clip_id, (linked_entry_id, linked_segment_index) in self._timeline_subtitle_links.items()
+        }
+
+        entry_is_loaded_on_timeline = any(
+            linked_entry_id == entry_id for linked_entry_id, _linked_segment_index in self._timeline_subtitle_links.values()
+        )
+        if entry_is_loaded_on_timeline:
+            created_clip_ids = self.timeline_controller.add_caption_segments_with_ids(
+                segments=[(candidate_start, segment_end, "")],
+                timeline_offset_seconds=0.0,
+            )
+            if created_clip_ids:
+                self._timeline_subtitle_links[created_clip_ids[0]] = (entry_id, insertion_index)
+
+        self.mark_dirty()
+        self.subtitle_library_changed.emit()
+        self.select_subtitle_segment(entry_id, insertion_index)
+        return True
+
+    def delete_subtitle_segment(self, entry_id: str, segment_index: int) -> bool:
+        entry = next((item for item in self._subtitle_library if item.entry_id == entry_id), None)
+        if entry is None:
+            return False
+        if segment_index < 0 or segment_index >= len(entry.segments):
+            return False
+
+        previous_links = dict(self._timeline_subtitle_links)
+        linked_clip_ids = [
+            clip_id
+            for clip_id, (linked_entry_id, linked_segment_index) in previous_links.items()
+            if linked_entry_id == entry_id and linked_segment_index == segment_index
+        ]
+
+        for clip_id in linked_clip_ids:
+            self.timeline_controller.delete_clip(clip_id)
+
+        del entry.segments[segment_index]
+
+        remapped_links: dict[str, tuple[str, int]] = {}
+        for clip_id, (linked_entry_id, linked_segment_index) in previous_links.items():
+            if clip_id in linked_clip_ids:
+                continue
+            if linked_entry_id == entry_id and linked_segment_index > segment_index:
+                remapped_links[clip_id] = (linked_entry_id, linked_segment_index - 1)
+                continue
+            remapped_links[clip_id] = (linked_entry_id, linked_segment_index)
+        self._timeline_subtitle_links = remapped_links
+
+        if not entry.segments:
+            if self._selected_subtitle is not None and self._selected_subtitle.entry_id == entry_id:
+                self._set_selected_subtitle(None)
+        elif self._selected_subtitle is not None and self._selected_subtitle.entry_id == entry_id:
+            selected_index = self._selected_subtitle.segment_index
+            if selected_index == segment_index:
+                next_index = min(segment_index, len(entry.segments) - 1)
+                self.select_subtitle_segment(entry_id, next_index)
+            elif selected_index > segment_index:
+                self.select_subtitle_segment(entry_id, selected_index - 1)
+
+        self.mark_dirty()
         self.subtitle_library_changed.emit()
         return True
 

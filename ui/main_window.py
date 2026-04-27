@@ -733,12 +733,23 @@ class MainWindow(QMainWindow):
             return Qt.CursorShape.SizeHorCursor
         return Qt.CursorShape.SizeVerCursor
 
+    def _is_watched_by_main_window(self, watched: QObject) -> bool:
+        if watched is self:
+            return True
+        if isinstance(watched, QWidget):
+            return watched.window() is self
+        return False
+
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         # Child widgets cover the entire MainWindow, so direct mouse events
         # on `self` never fire near the edges. We watch the QApplication for
         # mouse activity and intercept presses/moves whose global position
         # falls inside the resize border.
         event_type = event.type()
+        if event_type in {QEvent.Type.MouseMove, QEvent.Type.MouseButtonPress}:
+            if not self._is_watched_by_main_window(watched):
+                return super().eventFilter(watched, event)
+
         if event_type == QEvent.Type.MouseMove and isinstance(event, QMouseEvent):
             if not self.isActiveWindow():
                 # A modal dialog or external window grabbed focus while we
@@ -795,6 +806,7 @@ class MainWindow(QMainWindow):
         if not self._app_controller.has_unsaved_changes():
             return True
 
+        self._clear_resize_cursor()
         response = QMessageBox.question(
             self,
             self.tr("Thay đổi chưa lưu"),

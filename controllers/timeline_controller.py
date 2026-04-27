@@ -1553,13 +1553,10 @@ class TimelineController(QObject):
 
         created_clip_ids: list[str] = []
         for segment_start, segment_end, segment_text in segments:
-            if not segment_text.strip():
-                continue
-
             start = max(0.0, base_offset + segment_start)
             end = max(start + 0.05, base_offset + segment_end)
             duration = max(0.05, end - start)
-            content = segment_text.strip()
+            content = (segment_text or "").strip()
             clip_id = f"clip_{uuid4().hex[:10]}"
             clip = TextClip(
                 clip_id=clip_id,
