@@ -396,18 +396,18 @@ QLabel#details_subtitle_row_index {
 QWidget#details_subtitle_row[selected="true"] QLabel#details_subtitle_row_index {
     color: #00e5ff;
 }
-QLineEdit#details_subtitle_row_text {
+QPlainTextEdit#details_subtitle_row_text {
     background-color: transparent;
     border: 1px solid transparent;
     border-radius: 3px;
     color: #d7dce4;
     padding: 2px 4px;
 }
-QLineEdit#details_subtitle_row_text:focus {
+QPlainTextEdit#details_subtitle_row_text:focus {
     background-color: #131922;
     border-color: #00bcd4;
 }
-QWidget#details_subtitle_row[selected="true"] QLineEdit#details_subtitle_row_text {
+QWidget#details_subtitle_row[selected="true"] QPlainTextEdit#details_subtitle_row_text {
     color: #00e5ff;
 }
 QToolButton#details_subtitle_row_add,
