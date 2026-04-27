@@ -77,6 +77,15 @@ class TimelineToolbar(QWidget):
         self._playhead_sticky_checkbox = QCheckBox(self.tr("Dính đầu phát"), self)
         self._playhead_sticky_checkbox.toggled.connect(self._on_playhead_sticky_toggled)
         layout.addWidget(self._playhead_sticky_checkbox)
+
+        self._hover_scrub_checkbox = QCheckBox(self.tr("Theo dõi chuột"), self)
+        self._hover_scrub_checkbox.setToolTip(
+            self.tr(
+                "Khi bật: rê chuột trên timeline sẽ tự seek preview tới vị trí đó (không cần click)."
+            )
+        )
+        self._hover_scrub_checkbox.toggled.connect(self._on_hover_scrub_toggled)
+        layout.addWidget(self._hover_scrub_checkbox)
         layout.addWidget(self._create_separator())
 
         self._zoom_label = QLabel(self.tr("Thu phóng"), self)
@@ -133,6 +142,9 @@ class TimelineToolbar(QWidget):
     def _on_playhead_sticky_toggled(self, checked: bool) -> None:
         self._timeline_view.set_playhead_sticky_to_mouse_enabled(checked)
 
+    def _on_hover_scrub_toggled(self, checked: bool) -> None:
+        self._timeline_view.set_hover_scrub_enabled(checked)
+
     def _on_zoom_slider_changed(self, slider_value: int) -> None:
         if self._is_syncing:
             return
@@ -145,6 +157,7 @@ class TimelineToolbar(QWidget):
             self._snap_checkbox.setChecked(self._timeline_controller.snapping_enabled())
             self._ripple_checkbox.setChecked(self._timeline_controller.ripple_edit_enabled())
             self._playhead_sticky_checkbox.setChecked(self._timeline_view.playhead_sticky_to_mouse_enabled())
+            self._hover_scrub_checkbox.setChecked(self._timeline_view.hover_scrub_enabled())
             pps = self._timeline_controller.pixels_per_second
             self._zoom_slider.setValue(self._pixels_per_second_to_slider(pps))
             self._zoom_label.setText(self.tr("Thu phóng: {pps:.0f} px/s").format(pps=pps))

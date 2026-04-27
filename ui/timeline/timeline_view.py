@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from time import monotonic_ns
+
 from app.controllers.playback_controller import PlaybackController
 from app.controllers.selection_controller import SelectionController
 from app.controllers.timeline_controller import TimelineController
@@ -29,6 +31,8 @@ from PySide6.QtWidgets import QFrame, QGraphicsItem, QGraphicsView, QInputDialog
 
 
 class TimelineView(QGraphicsView):
+    _HOVER_SCRUB_THROTTLE_MS = 40
+
     def __init__(
         self,
         timeline_controller: TimelineController,
@@ -105,6 +109,14 @@ class TimelineView(QGraphicsView):
         self._marquee_start_scene = (0.0, 0.0)
         self._marquee_current_scene = (0.0, 0.0)
         self._marquee_initial_selection: list[str] = []
+
+        # Hover-scrub: when enabled, moving the mouse over the ruler / clip
+        # area seeks the playhead without requiring a click. Throttled to
+        # _HOVER_SCRUB_THROTTLE_MS to avoid swamping the decoder while the
+        # user sweeps the cursor across the timeline.
+        self._hover_scrub_enabled = False
+        self._hover_scrub_last_seek_ms = 0
+        self.viewport().setMouseTracking(True)
 
     def _on_scroll_changed(self, _value: int) -> None:
         self._timeline_scene.invalidate(
@@ -219,6 +231,16 @@ class TimelineView(QGraphicsView):
 
     def set_playhead_sticky_to_mouse_enabled(self, enabled: bool) -> None:
         self._playhead_sticky_to_mouse = bool(enabled)
+
+    def hover_scrub_enabled(self) -> bool:
+        return self._hover_scrub_enabled
+
+    def set_hover_scrub_enabled(self, enabled: bool) -> None:
+        self._hover_scrub_enabled = bool(enabled)
+        # Reset the throttle clock so the next hover seeks immediately
+        # instead of being deferred by a stale timestamp from before the
+        # toggle.
+        self._hover_scrub_last_seek_ms = 0
 
     def _perform_zoom(self, zoom_fn, anchor_scene_x: float | None = None) -> None:
         if anchor_scene_x is None:
@@ -426,6 +448,7 @@ class TimelineView(QGraphicsView):
 
         if not self._is_dragging or self._drag_clip_id is None:
             self._update_hover_cursor(event)
+            self._maybe_hover_scrub(event, scene_pos)
             super().mouseMoveEvent(event)
             return
 
@@ -798,6 +821,36 @@ class TimelineView(QGraphicsView):
             return
         time_seconds = max(0.0, (scene_x - self._timeline_scene.left_gutter) / pps)
         self._playback_controller.seek(round(time_seconds, 4))
+
+    def _maybe_hover_scrub(self, event: QMouseEvent, scene_pos) -> None:
+        """Move the playhead to follow the cursor when hover-scrub is on.
+
+        Only fires when no mouse button is held (so it doesn't fight the
+        existing scrub/drag/marquee handlers) and the pointer is over the
+        ruler or clip area — never over the track-header gutter. Throttled
+        with a wall-clock timestamp so a fast sweep doesn't decode every
+        intermediate pixel.
+        """
+
+        if not self._hover_scrub_enabled:
+            return
+        if event.buttons() != Qt.MouseButton.NoButton:
+            return
+        viewport_x = event.position().x()
+        if viewport_x <= self._timeline_scene.left_gutter:
+            return
+        # Skip frames within the throttle window. ``time.monotonic`` would
+        # also work but ``event.timestamp`` matches Qt's own clock and lets
+        # tests drive synthetic timestamps deterministically.
+        now_ms = int(event.timestamp())
+        if now_ms == 0:
+            # Fall back to a process-monotonic clock when the event carries
+            # no timestamp (synthesised events in tests, etc.).
+            now_ms = monotonic_ns() // 1_000_000
+        if now_ms - self._hover_scrub_last_seek_ms < self._HOVER_SCRUB_THROTTLE_MS:
+            return
+        self._hover_scrub_last_seek_ms = now_ms
+        self._seek_to_scene_x(scene_pos.x())
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         if event.modifiers() == Qt.KeyboardModifier.ControlModifier:
