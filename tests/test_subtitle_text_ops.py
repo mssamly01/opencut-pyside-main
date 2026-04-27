@@ -44,25 +44,23 @@ def test_replace_all_in_segments_collects_only_changed_indices():
         (2.0, 3.0, "no match here"),
         (3.0, 4.0, "world WORLD world"),
     ]
-    changes, total = replace_all_in_segments(
+    changes = replace_all_in_segments(
         segments, "world", "Earth", case_sensitive=False
     )
-    assert total == 4
     assert changes == [
-        (1, "Hello Earth"),
-        (3, "Earth Earth Earth"),
+        (1, "Hello Earth", 1),
+        (3, "Earth Earth Earth", 3),
     ]
 
 
 def test_replace_all_in_segments_empty_find_is_noop():
     segments = [(0.0, 1.0, "abc")]
-    assert replace_all_in_segments(segments, "", "x", case_sensitive=True) == ([], 0)
+    assert replace_all_in_segments(segments, "", "x", case_sensitive=True) == []
 
 
 def test_replace_all_in_segments_case_sensitive_distinguishes_case():
     segments = [(0.0, 1.0, "Apple apple APPLE")]
-    changes, total = replace_all_in_segments(
+    changes = replace_all_in_segments(
         segments, "apple", "X", case_sensitive=True
     )
-    assert total == 1
-    assert changes == [(0, "Apple X APPLE")]
+    assert changes == [(0, "Apple X APPLE", 1)]
