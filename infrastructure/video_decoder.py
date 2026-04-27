@@ -135,7 +135,10 @@ class VideoDecoder:
         """Evict oldest frames until at most ``target_count`` remain.
 
         Returns the number of entries evicted. Used by the memory guard to
-        release RAM when the system is under pressure.
+        release RAM when the system is under pressure. The prefetch
+        watermark is cleared on any eviction so the next preview request
+        re-runs ``decode_window`` instead of trusting a watermark whose
+        backing payloads we just dropped.
         """
 
         target = max(0, int(target_count))
@@ -143,6 +146,8 @@ class VideoDecoder:
         while len(self._frame_cache) > target:
             self._frame_cache.popitem(last=False)
             evicted += 1
+        if evicted:
+            self._prefetched_until.clear()
         return evicted
 
     def put_frame(

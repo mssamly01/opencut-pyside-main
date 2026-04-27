@@ -63,6 +63,40 @@ def test_video_decoder_shrink_cache_below_size_is_noop():
     assert decoder.cache_size() == 2
 
 
+def test_video_decoder_shrink_cache_clears_prefetched_until_on_eviction():
+    """Regression: shrink_cache_to must invalidate the prefetch watermark.
+
+    Without this, has_prefetched_until still reports True for indices whose
+    payloads were just evicted, _prefetch_window short-circuits, and
+    get_preview_frame falls through to slow single-frame decoding for every
+    request after a memory-pressure event.
+    """
+
+    decoder = VideoDecoder(max_cache_entries=10)
+    for i in range(8):
+        decoder._frame_cache[("path", 30000, i, "")] = b"x"  # noqa: SLF001
+    decoder._prefetched_until[("path", 30000, "")] = 7  # noqa: SLF001
+
+    decoder.shrink_cache_to(3)
+
+    # Watermark cleared so the next request triggers a fresh decode_window.
+    assert decoder.has_prefetched_until("path", 30.0, 5) is False
+    assert decoder._prefetched_until == {}  # noqa: SLF001
+
+
+def test_video_decoder_shrink_cache_keeps_watermark_when_no_eviction():
+    """If nothing was evicted, the prefetch watermark must stay intact."""
+
+    decoder = VideoDecoder(max_cache_entries=10)
+    for i in range(2):
+        decoder._frame_cache[("path", 30000, i, "")] = b"x"  # noqa: SLF001
+    decoder._prefetched_until[("path", 30000, "")] = 1  # noqa: SLF001
+
+    decoder.shrink_cache_to(50)
+
+    assert decoder._prefetched_until == {("path", 30000, ""): 1}  # noqa: SLF001
+
+
 def test_memory_guard_no_shrink_when_under_threshold(monkeypatch):
     guard = MemoryGuard(threshold_percent=75.0, check_every_n_calls=1)
     _set_memory_percent(monkeypatch, 50.0)
