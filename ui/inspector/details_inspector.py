@@ -7,15 +7,26 @@ from app.domain.clips.image_clip import ImageClip
 from app.domain.clips.text_clip import TextClip
 from app.domain.clips.video_clip import VideoClip
 from app.domain.project import Project
+from app.services.subtitle_filters import (
+    find_adjacent_duplicate_indices,
+    find_interjection_indices,
+    find_ocr_error_indices,
+    find_reading_speed_outlier_indices,
+)
 from app.ui.shared.icons import build_icon
 from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QCursor, QFocusEvent, QKeyEvent
+from PySide6.QtGui import QAction, QCursor, QFocusEvent, QKeyEvent
 from PySide6.QtWidgets import (
+    QCheckBox,
+    QDialog,
+    QDialogButtonBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMenu,
+    QMessageBox,
     QStackedWidget,
     QToolButton,
     QVBoxLayout,
@@ -214,6 +225,80 @@ class _SubtitleListRowWidget(QWidget):
         self.update()
 
 
+class _InterjectionFilterDialog(QDialog):
+    """Checklist dialog for bulk-deleting Chinese-interjection-only subtitles.
+
+    Mirrors ``DeleteInterjectionsDialog`` from the reference editor app: each
+    row represents a candidate segment, all are pre-checked, and the OK action
+    returns the segment indices the user kept checked.
+    """
+
+    def __init__(self, parent: QWidget, rows: list[tuple[int, str]]) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(self.tr("Bộ lọc câu cảm thán"))
+        self.resize(500, 450)
+        self._rows = rows
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+
+        header = QLabel(
+            self.tr(
+                "Phát hiện <b>{count}</b> dòng có khả năng là phụ đề cảm thán."
+                "<br>Bỏ chọn các dòng bạn muốn giữ lại trước khi nhấn Xoá."
+            ).format(count=len(rows))
+        )
+        header.setWordWrap(True)
+        layout.addWidget(header)
+
+        self._select_all = QCheckBox(self.tr("Chọn tất cả để xoá"))
+        self._select_all.setChecked(True)
+        self._select_all.stateChanged.connect(self._on_select_all_changed)
+        layout.addWidget(self._select_all)
+
+        self._list = QListWidget(self)
+        for segment_index, text in rows:
+            item = QListWidgetItem(
+                self.tr("Dòng {n}: {text}").format(n=segment_index + 1, text=text)
+            )
+            item.setFlags(
+                Qt.ItemFlag.ItemIsUserCheckable
+                | Qt.ItemFlag.ItemIsEnabled
+                | Qt.ItemFlag.ItemIsSelectable
+            )
+            item.setCheckState(Qt.CheckState.Checked)
+            item.setData(Qt.ItemDataRole.UserRole, segment_index)
+            self._list.addItem(item)
+        layout.addWidget(self._list, 1)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+            parent=self,
+        )
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText(
+            self.tr("Xoá các dòng đã chọn")
+        )
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText(self.tr("Huỷ"))
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _on_select_all_changed(self, state: int) -> None:
+        check_state = (
+            Qt.CheckState.Checked if state != int(Qt.CheckState.Unchecked) else Qt.CheckState.Unchecked
+        )
+        for i in range(self._list.count()):
+            self._list.item(i).setCheckState(check_state)
+
+    def selected_indices(self) -> list[int]:
+        result: list[int] = []
+        for i in range(self._list.count()):
+            item = self._list.item(i)
+            if item.checkState() == Qt.CheckState.Checked:
+                result.append(int(item.data(Qt.ItemDataRole.UserRole)))
+        return result
+
+
 class DetailsInspector(QWidget):
     """Inspector details/subtitle views."""
 
@@ -241,6 +326,12 @@ class DetailsInspector(QWidget):
         # small scrolls don't churn widgets.
         self._subtitle_row_buffer: int = 12
         self._pending_visible_row: int | None = None
+        # Active "quality" filter: None | "ocr" | "speed" | "duplicate". When set
+        # the search input shows a chip and the visible rows are restricted to
+        # the indices in `_quality_filter_rows`.
+        self._quality_filter: str | None = None
+        self._quality_filter_rows: set[int] = set()
+        self._quality_filter_chip_visible = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 10, 14, 10)
@@ -297,6 +388,9 @@ class DetailsInspector(QWidget):
         self._toolbar_filter_button = self._build_subtitle_toolbar_button("-≡")
         self._toolbar_zoom_button = self._build_subtitle_toolbar_button("⊖")
         self._toolbar_help_button = self._build_subtitle_toolbar_button("?")
+        self._toolbar_filter_button.setToolTip(self.tr("Bộ lọc chất lượng phụ đề"))
+        self._toolbar_filter_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._toolbar_filter_button.setMenu(self._build_subtitle_filter_menu())
         search_row_layout.addWidget(self._toolbar_sort_button)
         search_row_layout.addWidget(self._toolbar_filter_button)
         search_row_layout.addWidget(self._toolbar_zoom_button)
@@ -334,6 +428,33 @@ class DetailsInspector(QWidget):
         button.setCursor(Qt.CursorShape.PointingHandCursor)
         button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         return button
+
+    def _build_subtitle_filter_menu(self) -> QMenu:
+        menu = QMenu(self._subtitle_page)
+        menu.setObjectName("details_subtitle_filter_menu")
+
+        clear_action = QAction(self.tr("Bỏ lọc"), menu)
+        clear_action.triggered.connect(lambda: self._set_quality_filter(None))
+        menu.addAction(clear_action)
+        menu.addSeparator()
+
+        ocr_action = QAction(self.tr("Lọc lỗi OCR"), menu)
+        ocr_action.triggered.connect(lambda: self._set_quality_filter("ocr"))
+        menu.addAction(ocr_action)
+
+        speed_action = QAction(self.tr("Lọc tốc độ đọc < 3 ký tự/s"), menu)
+        speed_action.triggered.connect(lambda: self._set_quality_filter("speed"))
+        menu.addAction(speed_action)
+
+        duplicate_action = QAction(self.tr("Lọc phụ đề trùng liền kề"), menu)
+        duplicate_action.triggered.connect(lambda: self._set_quality_filter("duplicate"))
+        menu.addAction(duplicate_action)
+
+        menu.addSeparator()
+        interjection_action = QAction(self.tr("Bộ lọc câu cảm thán..."), menu)
+        interjection_action.triggered.connect(self._open_interjection_dialog)
+        menu.addAction(interjection_action)
+        return menu
 
     def set_mode(self, mode: str) -> None:
         normalized = mode if mode in {self.MODE_DETAILS, self.MODE_SUBTITLES} else self.MODE_DETAILS
@@ -438,6 +559,7 @@ class DetailsInspector(QWidget):
             self._subtitle_text_lower_cache = []
             self._attached_widget_rows.clear()
             self._active_subtitle_entry_id = None
+            self._reset_quality_filter()
             self._subtitle_list.clear()
             self._apply_subtitle_filter()
             return
@@ -542,6 +664,10 @@ class DetailsInspector(QWidget):
             self._subtitle_text_lower_cache = []
             self._attached_widget_rows.clear()
             self._active_subtitle_entry_id = None
+            # Quality-filter row indices are invalidated by an entry switch or
+            # any change in the segment count; the search-input chip should
+            # also be cleared so the user sees the new entry's full list.
+            self._reset_quality_filter()
             self._subtitle_list.clear()
             if entry is None or not entry.segments:
                 return
@@ -581,10 +707,140 @@ class DetailsInspector(QWidget):
     def _on_subtitle_search_text_changed(self, _value: str) -> None:
         if self._mode != self.MODE_SUBTITLES:
             return
+        # User typed (or cleared) text while a quality filter chip was showing —
+        # exit the quality-filter mode so the search query takes over.
+        if self._quality_filter_chip_visible:
+            self._quality_filter = None
+            self._quality_filter_rows = set()
+            self._quality_filter_chip_visible = False
         self._apply_subtitle_filter()
 
+    def _reset_quality_filter(self) -> None:
+        """Drop any active quality filter and clear the search-input chip."""
+
+        had_chip = self._quality_filter_chip_visible
+        self._quality_filter = None
+        self._quality_filter_rows = set()
+        self._quality_filter_chip_visible = False
+        if had_chip:
+            self._subtitle_search_input.blockSignals(True)
+            try:
+                self._subtitle_search_input.clear()
+            finally:
+                self._subtitle_search_input.blockSignals(False)
+
+    def _set_quality_filter(self, kind: str | None) -> None:
+        """Activate (or clear) one of the four built-in quality filters."""
+
+        if kind not in (None, "ocr", "speed", "duplicate"):
+            return
+        if kind is None:
+            self._quality_filter = None
+            self._quality_filter_rows = set()
+            self._quality_filter_chip_visible = False
+            self._subtitle_search_input.blockSignals(True)
+            try:
+                self._subtitle_search_input.clear()
+            finally:
+                self._subtitle_search_input.blockSignals(False)
+            self._apply_subtitle_filter()
+            return
+
+        entry = self._current_subtitle_entry()
+        if entry is None or not entry.segments:
+            self._quality_filter = None
+            self._quality_filter_rows = set()
+            self._quality_filter_chip_visible = False
+            QMessageBox.information(
+                self,
+                self.tr("Bộ lọc phụ đề"),
+                self.tr("Chưa có phụ đề để lọc."),
+            )
+            return
+
+        if kind == "ocr":
+            indices = find_ocr_error_indices(entry.segments)
+            label = self.tr("[Chế độ lọc: Lỗi OCR]")
+            empty_message = self.tr("Không phát hiện lỗi OCR trong danh sách phụ đề.")
+        elif kind == "speed":
+            indices = find_reading_speed_outlier_indices(entry.segments)
+            label = self.tr("[Chế độ lọc: Tốc độ đọc < 3 ký tự/s]")
+            empty_message = self.tr("Không có phụ đề nào đọc dưới 3 ký tự/giây.")
+        else:  # "duplicate"
+            indices = find_adjacent_duplicate_indices(entry.segments)
+            label = self.tr("[Chế độ lọc: Trùng lặp liền kề]")
+            empty_message = self.tr("Không có phụ đề nào trùng lặp liền kề.")
+
+        if not indices:
+            self._quality_filter = None
+            self._quality_filter_rows = set()
+            self._quality_filter_chip_visible = False
+            QMessageBox.information(self, self.tr("Bộ lọc phụ đề"), empty_message)
+            return
+
+        self._quality_filter = kind
+        self._quality_filter_rows = set(indices)
+        self._quality_filter_chip_visible = True
+        self._subtitle_search_input.blockSignals(True)
+        try:
+            self._subtitle_search_input.setText(label)
+        finally:
+            self._subtitle_search_input.blockSignals(False)
+        self._apply_subtitle_filter()
+
+    def _current_subtitle_entry(self):
+        if self._active_subtitle_entry_id is None:
+            return None
+        for entry in self._app_controller.subtitle_library_entries():
+            if entry.entry_id == self._active_subtitle_entry_id:
+                return entry
+        return None
+
+    def _open_interjection_dialog(self) -> None:
+        entry = self._current_subtitle_entry()
+        if entry is None or not entry.segments:
+            QMessageBox.information(
+                self,
+                self.tr("Bộ lọc câu cảm thán"),
+                self.tr("Chưa có phụ đề để lọc."),
+            )
+            return
+
+        indices = find_interjection_indices(entry.segments)
+        if not indices:
+            QMessageBox.information(
+                self,
+                self.tr("Bộ lọc câu cảm thán"),
+                self.tr("Tuyệt vời, không tìm thấy dòng cảm thán nào trong phụ đề!"),
+            )
+            return
+
+        rows = [(idx, entry.segments[idx][2]) for idx in indices]
+        dialog = _InterjectionFilterDialog(self, rows)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        selected = dialog.selected_indices()
+        if not selected:
+            return
+
+        # Delete in descending order so earlier indices remain stable as the
+        # entry's segment list shrinks. Each call re-emits subtitle_library_changed
+        # but the inspector's incremental refresh keeps the cost manageable.
+        for idx in sorted(selected, reverse=True):
+            self._app_controller.delete_subtitle_segment(entry.entry_id, idx)
+
+        QMessageBox.information(
+            self,
+            self.tr("Bộ lọc câu cảm thán"),
+            self.tr("Đã xoá {count} dòng phụ đề cảm thán.").format(count=len(selected)),
+        )
+
     def _apply_subtitle_filter(self) -> None:
-        query = (self._subtitle_search_input.text() or "").strip().lower()
+        if self._quality_filter_chip_visible:
+            query = ""
+        else:
+            query = (self._subtitle_search_input.text() or "").strip().lower()
+        quality_rows = self._quality_filter_rows if self._quality_filter else None
         previous_flag = self._subtitle_list_refreshing
         self._subtitle_list_refreshing = True
         current_row_after_filter = -1
@@ -595,7 +851,9 @@ class DetailsInspector(QWidget):
                 item = self._subtitle_list.item(row)
                 if item is None:
                     continue
-                if not query:
+                if quality_rows is not None and row not in quality_rows:
+                    visible = False
+                elif not query:
                     visible = True
                 elif row < len(self._subtitle_text_lower_cache):
                     visible = query in self._subtitle_text_lower_cache[row]
