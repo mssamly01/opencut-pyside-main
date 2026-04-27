@@ -15,7 +15,7 @@ from app.services.subtitle_filters import (
 )
 from app.ui.shared.icons import build_icon
 from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QCursor, QFocusEvent, QKeyEvent
+from PySide6.QtGui import QAction, QCursor, QFocusEvent, QKeyEvent, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -225,6 +225,64 @@ class _SubtitleListRowWidget(QWidget):
         self.update()
 
 
+class _FindReplaceDialog(QDialog):
+    """Tìm và thay thế hàng loạt trong toàn bộ phụ đề của entry hiện tại.
+
+    Mirrors ``FindReplaceDialog`` in the reference editor app. The dialog
+    only collects user input — the actual bulk replace is delegated to
+    :meth:`AppController.replace_all_in_subtitle_entry`.
+    """
+
+    def __init__(self, parent: QWidget, initial_find_text: str = "") -> None:
+        super().__init__(parent)
+        self.setWindowTitle(self.tr("Tìm & thay thế phụ đề"))
+        self.resize(420, 200)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(8)
+
+        layout.addWidget(QLabel(self.tr("Tìm:")))
+        self._find_input = QLineEdit(self)
+        self._find_input.setPlaceholderText(self.tr("Nhập văn bản cần tìm..."))
+        self._find_input.setText(initial_find_text)
+        layout.addWidget(self._find_input)
+
+        layout.addWidget(QLabel(self.tr("Thay bằng:")))
+        self._replace_input = QLineEdit(self)
+        self._replace_input.setPlaceholderText(
+            self.tr("Để trống để xoá đoạn khớp...")
+        )
+        layout.addWidget(self._replace_input)
+
+        self._case_sensitive = QCheckBox(self.tr("Phân biệt chữ hoa/thường"))
+        layout.addWidget(self._case_sensitive)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+            parent=self,
+        )
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText(
+            self.tr("Thay tất cả")
+        )
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText(self.tr("Huỷ"))
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self._find_input.setFocus()
+        if initial_find_text:
+            self._find_input.selectAll()
+
+    def find_text(self) -> str:
+        return self._find_input.text()
+
+    def replace_text(self) -> str:
+        return self._replace_input.text()
+
+    def case_sensitive(self) -> bool:
+        return self._case_sensitive.isChecked()
+
+
 class _InterjectionFilterDialog(QDialog):
     """Checklist dialog for bulk-deleting Chinese-interjection-only subtitles.
 
@@ -391,6 +449,12 @@ class DetailsInspector(QWidget):
         self._toolbar_filter_button.setToolTip(self.tr("Bộ lọc chất lượng phụ đề"))
         self._toolbar_filter_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self._toolbar_filter_button.setMenu(self._build_subtitle_filter_menu())
+
+        # Ctrl+H mở Find/Replace, chỉ hoạt động khi inspector đang ở chế độ
+        # phụ đề và phím tắt được hướng tới panel này.
+        self._find_replace_shortcut = QShortcut(QKeySequence("Ctrl+H"), self)
+        self._find_replace_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self._find_replace_shortcut.activated.connect(self._on_find_replace_shortcut)
         search_row_layout.addWidget(self._toolbar_sort_button)
         search_row_layout.addWidget(self._toolbar_filter_button)
         search_row_layout.addWidget(self._toolbar_zoom_button)
@@ -454,6 +518,10 @@ class DetailsInspector(QWidget):
         interjection_action = QAction(self.tr("Bộ lọc câu cảm thán..."), menu)
         interjection_action.triggered.connect(self._open_interjection_dialog)
         menu.addAction(interjection_action)
+
+        find_replace_action = QAction(self.tr("Tìm && thay thế...\tCtrl+H"), menu)
+        find_replace_action.triggered.connect(self._open_find_replace_dialog)
+        menu.addAction(find_replace_action)
         return menu
 
     def set_mode(self, mode: str) -> None:
@@ -833,6 +901,56 @@ class DetailsInspector(QWidget):
             self,
             self.tr("Bộ lọc câu cảm thán"),
             self.tr("Đã xoá {count} dòng phụ đề cảm thán.").format(count=len(selected)),
+        )
+
+    def _on_find_replace_shortcut(self) -> None:
+        if self._mode != self.MODE_SUBTITLES:
+            return
+        self._open_find_replace_dialog()
+
+    def _open_find_replace_dialog(self) -> None:
+        entry = self._current_subtitle_entry()
+        if entry is None or not entry.segments:
+            QMessageBox.information(
+                self,
+                self.tr("Tìm & thay thế"),
+                self.tr("Chưa có phụ đề để tìm kiếm."),
+            )
+            return
+
+        # Pre-fill the find field with the search-bar query when it isn't a
+        # quality-filter chip — saves typing the same word twice.
+        prefill = ""
+        if not self._quality_filter_chip_visible:
+            prefill = (self._subtitle_search_input.text() or "").strip()
+
+        dialog = _FindReplaceDialog(self, initial_find_text=prefill)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        find_text = dialog.find_text()
+        if not find_text:
+            return
+        replace_text = dialog.replace_text()
+        case_sensitive = dialog.case_sensitive()
+
+        count = self._app_controller.replace_all_in_subtitle_entry(
+            entry.entry_id,
+            find_text,
+            replace_text,
+            case_sensitive=case_sensitive,
+        )
+        if count == 0:
+            QMessageBox.information(
+                self,
+                self.tr("Tìm & thay thế"),
+                self.tr('Không tìm thấy văn bản:\n"{text}"').format(text=find_text),
+            )
+            return
+        QMessageBox.information(
+            self,
+            self.tr("Tìm & thay thế"),
+            self.tr("Đã thay thế {count} chỗ.").format(count=count),
         )
 
     def _apply_subtitle_filter(self) -> None:
