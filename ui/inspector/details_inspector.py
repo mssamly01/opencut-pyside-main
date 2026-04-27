@@ -8,7 +8,7 @@ from app.domain.clips.text_clip import TextClip
 from app.domain.clips.video_clip import VideoClip
 from app.domain.project import Project
 from app.ui.shared.icons import build_icon
-from PySide6.QtCore import QCoreApplication, QEvent, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QCursor, QFocusEvent, QKeyEvent
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -230,6 +230,17 @@ class DetailsInspector(QWidget):
         self._title_committing = False
         self._subtitle_rows: list[tuple[str, int]] = []
         self._subtitle_list_refreshing = False
+        self._subtitle_text_cache: list[str] = []
+        self._subtitle_text_lower_cache: list[str] = []
+        self._active_subtitle_entry_id: str | None = None
+        self._attached_widget_rows: set[int] = set()
+        # Estimated row height (incl. margins) used for sizeHint and visible-row math.
+        # Matches _SubtitleListRowWidget minimum height + list item padding.
+        self._subtitle_row_height: int = 44 + 8
+        # Buffer of rows above/below viewport that keep their widgets attached, so
+        # small scrolls don't churn widgets.
+        self._subtitle_row_buffer: int = 12
+        self._pending_visible_row: int | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 10, 14, 10)
@@ -296,11 +307,15 @@ class DetailsInspector(QWidget):
         self._subtitle_list.setObjectName("details_subtitle_list")
         self._subtitle_list.setAlternatingRowColors(False)
         self._subtitle_list.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
+        self._subtitle_list.setUniformItemSizes(True)
         self._subtitle_list.setMouseTracking(True)
         self._subtitle_list.viewport().setMouseTracking(True)
         self._subtitle_list.viewport().setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         self._subtitle_list.currentRowChanged.connect(self._on_subtitle_row_changed)
         self._subtitle_list.viewport().installEventFilter(self)
+        self._subtitle_list.verticalScrollBar().valueChanged.connect(
+            self._on_subtitle_scroll_changed
+        )
         subtitle_layout.addWidget(self._subtitle_list, 1)
         self._stack.addWidget(self._subtitle_page)
 
@@ -419,6 +434,10 @@ class DetailsInspector(QWidget):
         selected = self._app_controller.selected_subtitle_segment()
         if selected is None:
             self._subtitle_rows = []
+            self._subtitle_text_cache = []
+            self._subtitle_text_lower_cache = []
+            self._attached_widget_rows.clear()
+            self._active_subtitle_entry_id = None
             self._subtitle_list.clear()
             self._apply_subtitle_filter()
             return
@@ -487,43 +506,61 @@ class DetailsInspector(QWidget):
             (item for item in self._app_controller.subtitle_library_entries() if item.entry_id == entry_id),
             None,
         )
+
+        # Fast incremental path: same entry & same number of segments => just refresh
+        # text on attached widgets and the text caches in place. This avoids the
+        # heavy rebuild of N item-widgets every time a segment text edit emits
+        # subtitle_library_changed.
+        if (
+            entry is not None
+            and entry.entry_id == self._active_subtitle_entry_id
+            and len(entry.segments) == len(self._subtitle_rows)
+            and len(entry.segments) > 0
+        ):
+            self._update_subtitle_caches_in_place(entry)
+            self._refresh_attached_subtitle_widgets()
+            if selected_segment_index is not None:
+                key = (entry.entry_id, int(selected_segment_index))
+                if key in self._subtitle_rows:
+                    target_row = self._subtitle_rows.index(key)
+                    if self._subtitle_list.currentRow() != target_row:
+                        previous_flag = self._subtitle_list_refreshing
+                        self._subtitle_list_refreshing = True
+                        try:
+                            self._subtitle_list.setCurrentRow(target_row)
+                        finally:
+                            self._subtitle_list_refreshing = previous_flag
+            self._apply_subtitle_filter()
+            self._clear_subtitle_row_hover_states()
+            self._update_subtitle_row_selection_styles()
+            return
+
         self._subtitle_list_refreshing = True
         try:
             self._subtitle_rows = []
+            self._subtitle_text_cache = []
+            self._subtitle_text_lower_cache = []
+            self._attached_widget_rows.clear()
+            self._active_subtitle_entry_id = None
             self._subtitle_list.clear()
             if entry is None or not entry.segments:
                 return
 
-            for segment_index, (segment_start, segment_end, segment_text) in enumerate(entry.segments):
+            self._active_subtitle_entry_id = entry.entry_id
+            placeholder_size = QSize(0, self._subtitle_row_height)
+
+            for segment_index, (_segment_start, _segment_end, segment_text) in enumerate(entry.segments):
                 clean_text = (segment_text or "").replace("\n", " ").strip() or "-"
 
                 list_item = QListWidgetItem()
                 list_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
                 list_item.setToolTip("")
+                list_item.setSizeHint(placeholder_size)
                 self._subtitle_list.addItem(list_item)
 
-                row_widget = _SubtitleListRowWidget(segment_index + 1, clean_text, self._subtitle_list)
-                row_widget.text_commit_requested.connect(
-                    lambda value, eid=entry.entry_id, idx=segment_index: self._on_subtitle_text_committed(
-                        eid,
-                        idx,
-                        value,
-                    )
-                )
-                row_widget.focus_requested.connect(
-                    lambda eid=entry.entry_id, idx=segment_index: self._focus_subtitle_row(eid, idx)
-                )
-                row_widget.add_requested.connect(
-                    lambda eid=entry.entry_id, idx=segment_index: self._on_add_subtitle_requested(eid, idx)
-                )
-                row_widget.delete_requested.connect(
-                    lambda eid=entry.entry_id, idx=segment_index: self._on_delete_subtitle_requested(eid, idx)
-                )
-                row_widget.hover_requested.connect(self._on_subtitle_row_hover_requested)
-                self._subtitle_list.setItemWidget(list_item, row_widget)
-                list_item.setSizeHint(row_widget.sizeHint())
-
                 self._subtitle_rows.append((entry.entry_id, segment_index))
+                self._subtitle_text_cache.append(clean_text)
+                self._subtitle_text_lower_cache.append(clean_text.lower())
 
             if not self._subtitle_rows:
                 return
@@ -537,6 +574,7 @@ class DetailsInspector(QWidget):
         finally:
             self._subtitle_list_refreshing = False
             self._apply_subtitle_filter()
+            self._sync_attached_subtitle_widgets()
             self._clear_subtitle_row_hover_states()
             self._update_subtitle_row_selection_styles()
 
@@ -552,13 +590,19 @@ class DetailsInspector(QWidget):
         current_row_after_filter = -1
         try:
             first_visible_row: int | None = None
-            for row, (entry_id, segment_index) in enumerate(self._subtitle_rows):
+            row_count = len(self._subtitle_rows)
+            for row in range(row_count):
                 item = self._subtitle_list.item(row)
                 if item is None:
                     continue
-                row_text = (self._subtitle_text(entry_id, segment_index) or "").lower()
-                visible = not query or query in row_text
-                item.setHidden(not visible)
+                if not query:
+                    visible = True
+                elif row < len(self._subtitle_text_lower_cache):
+                    visible = query in self._subtitle_text_lower_cache[row]
+                else:
+                    visible = False
+                if item.isHidden() == visible:
+                    item.setHidden(not visible)
                 if visible and first_visible_row is None:
                     first_visible_row = row
 
@@ -580,6 +624,7 @@ class DetailsInspector(QWidget):
                 current_row_after_filter = current_row
         finally:
             self._subtitle_list_refreshing = previous_flag
+            self._sync_attached_subtitle_widgets()
             self._update_subtitle_row_selection_styles()
 
         if previous_flag:
@@ -601,6 +646,7 @@ class DetailsInspector(QWidget):
         if item is not None and item.isHidden():
             self._subtitle_search_input.clear()
             item.setHidden(False)
+        self._ensure_subtitle_widget_attached(row)
         if self._subtitle_list.currentRow() == row:
             return
         self._subtitle_list.setCurrentRow(row)
@@ -655,15 +701,18 @@ class DetailsInspector(QWidget):
         row = self._row_index_for_subtitle(entry_id, segment_index)
         if row is None:
             return
+        original_text = self._subtitle_text(entry_id, segment_index)
+        if original_text is None:
+            original_text = "-"
+        if 0 <= row < len(self._subtitle_text_cache):
+            self._subtitle_text_cache[row] = original_text
+            self._subtitle_text_lower_cache[row] = original_text.lower()
         item = self._subtitle_list.item(row)
         if item is None:
             return
         widget = self._subtitle_list.itemWidget(item)
         if not isinstance(widget, _SubtitleListRowWidget):
             return
-        original_text = self._subtitle_text(entry_id, segment_index)
-        if original_text is None:
-            original_text = "-"
         self._subtitle_list_refreshing = True
         try:
             widget.set_text(original_text)
@@ -678,7 +727,9 @@ class DetailsInspector(QWidget):
 
     def _update_subtitle_row_selection_styles(self) -> None:
         current_row = self._subtitle_list.currentRow()
-        for row in range(self._subtitle_list.count()):
+        # Only iterate rows that currently have an attached row widget; off-screen
+        # rows have no widget so they need no style update.
+        for row in tuple(self._attached_widget_rows):
             item = self._subtitle_list.item(row)
             if item is None:
                 continue
@@ -687,7 +738,7 @@ class DetailsInspector(QWidget):
                 widget.set_selected(row == current_row and not item.isHidden())
 
     def _on_subtitle_row_hover_requested(self, hovered_widget: object | None) -> None:
-        for row in range(self._subtitle_list.count()):
+        for row in tuple(self._attached_widget_rows):
             item = self._subtitle_list.item(row)
             if item is None:
                 continue
@@ -718,13 +769,149 @@ class DetailsInspector(QWidget):
         self._on_subtitle_row_hover_requested(None)
 
     def _clear_subtitle_row_hover_states(self) -> None:
-        for row in range(self._subtitle_list.count()):
+        for row in tuple(self._attached_widget_rows):
             item = self._subtitle_list.item(row)
             if item is None:
                 continue
             widget = self._subtitle_list.itemWidget(item)
             if isinstance(widget, _SubtitleListRowWidget):
                 widget._set_hover_state(False)
+
+    def _on_subtitle_scroll_changed(self, _value: int) -> None:
+        self._sync_attached_subtitle_widgets()
+
+    def _visible_subtitle_row_range(self) -> tuple[int, int]:
+        """Return [first, last] inclusive row indexes intended to have a widget attached.
+
+        Uses the QListWidget's indexAt API so we honor wraps/hidden rows correctly.
+        Returns (0, -1) when the viewport has no items.
+        """
+        row_count = len(self._subtitle_rows)
+        if row_count == 0:
+            return (0, -1)
+        viewport = self._subtitle_list.viewport()
+        viewport_rect = viewport.rect()
+        if viewport_rect.height() <= 0 or viewport_rect.width() <= 0:
+            return (0, -1)
+
+        top_index = self._subtitle_list.indexAt(viewport_rect.topLeft())
+        bottom_index = self._subtitle_list.indexAt(viewport_rect.bottomLeft() - QPoint(0, 1))
+
+        if top_index.isValid():
+            top_row = top_index.row()
+        else:
+            # Fallback to scroll math when indexAt misses (e.g. empty space above items).
+            scroll_y = self._subtitle_list.verticalScrollBar().value()
+            top_row = max(0, scroll_y // max(1, self._subtitle_row_height))
+
+        if bottom_index.isValid():
+            bottom_row = bottom_index.row()
+        else:
+            estimated_visible = max(1, viewport_rect.height() // max(1, self._subtitle_row_height))
+            bottom_row = top_row + estimated_visible
+
+        first = max(0, top_row - self._subtitle_row_buffer)
+        last = min(row_count - 1, bottom_row + self._subtitle_row_buffer)
+        return (first, last)
+
+    def _sync_attached_subtitle_widgets(self) -> None:
+        """Ensure widgets are attached only for rows currently inside the visible window.
+
+        Detaches widgets for rows that scrolled far out of view; attaches new widgets
+        for rows that scrolled into view. Keeps memory bounded for large lists.
+        """
+        if not self._subtitle_rows:
+            if self._attached_widget_rows:
+                for row in tuple(self._attached_widget_rows):
+                    self._detach_subtitle_widget(row)
+            return
+
+        first, last = self._visible_subtitle_row_range()
+        if last < first:
+            return
+
+        target_rows = set(range(first, last + 1))
+        # Detach widgets that are no longer needed.
+        for row in tuple(self._attached_widget_rows):
+            if row not in target_rows:
+                self._detach_subtitle_widget(row)
+        # Attach widgets that are now needed.
+        for row in range(first, last + 1):
+            self._ensure_subtitle_widget_attached(row)
+
+        self._update_subtitle_row_selection_styles()
+
+    def _ensure_subtitle_widget_attached(self, row: int) -> None:
+        if row < 0 or row >= len(self._subtitle_rows):
+            return
+        if row in self._attached_widget_rows:
+            return
+        item = self._subtitle_list.item(row)
+        if item is None:
+            return
+        entry_id, segment_index = self._subtitle_rows[row]
+        text = (
+            self._subtitle_text_cache[row]
+            if 0 <= row < len(self._subtitle_text_cache)
+            else (self._subtitle_text(entry_id, segment_index) or "-")
+        )
+
+        widget = _SubtitleListRowWidget(segment_index + 1, text, self._subtitle_list)
+        widget.text_commit_requested.connect(
+            lambda value, eid=entry_id, idx=segment_index: self._on_subtitle_text_committed(
+                eid,
+                idx,
+                value,
+            )
+        )
+        widget.focus_requested.connect(
+            lambda eid=entry_id, idx=segment_index: self._focus_subtitle_row(eid, idx)
+        )
+        widget.add_requested.connect(
+            lambda eid=entry_id, idx=segment_index: self._on_add_subtitle_requested(eid, idx)
+        )
+        widget.delete_requested.connect(
+            lambda eid=entry_id, idx=segment_index: self._on_delete_subtitle_requested(eid, idx)
+        )
+        widget.hover_requested.connect(self._on_subtitle_row_hover_requested)
+        self._subtitle_list.setItemWidget(item, widget)
+        # Keep size hint stable so geometry math remains predictable.
+        item.setSizeHint(QSize(0, self._subtitle_row_height))
+        self._attached_widget_rows.add(row)
+
+    def _detach_subtitle_widget(self, row: int) -> None:
+        if row not in self._attached_widget_rows:
+            return
+        item = self._subtitle_list.item(row)
+        if item is not None:
+            self._subtitle_list.removeItemWidget(item)
+            item.setSizeHint(QSize(0, self._subtitle_row_height))
+        self._attached_widget_rows.discard(row)
+
+    def _update_subtitle_caches_in_place(self, entry: object) -> None:
+        segments = getattr(entry, "segments", []) or []
+        if len(segments) != len(self._subtitle_rows):
+            return
+        for row, (_segment_start, _segment_end, segment_text) in enumerate(segments):
+            clean_text = (segment_text or "").replace("\n", " ").strip() or "-"
+            if row < len(self._subtitle_text_cache):
+                self._subtitle_text_cache[row] = clean_text
+                self._subtitle_text_lower_cache[row] = clean_text.lower()
+            else:
+                self._subtitle_text_cache.append(clean_text)
+                self._subtitle_text_lower_cache.append(clean_text.lower())
+
+    def _refresh_attached_subtitle_widgets(self) -> None:
+        """Push cached text into already-attached widgets without rebuilding the list."""
+        for row in tuple(self._attached_widget_rows):
+            item = self._subtitle_list.item(row)
+            if item is None:
+                continue
+            widget = self._subtitle_list.itemWidget(item)
+            if not isinstance(widget, _SubtitleListRowWidget):
+                continue
+            if 0 <= row < len(self._subtitle_text_cache):
+                widget.set_text(self._subtitle_text_cache[row])
 
     def _subtitle_text(self, entry_id: str, segment_index: int) -> str | None:
         entry = next(
