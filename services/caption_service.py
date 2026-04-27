@@ -42,10 +42,9 @@ class CaptionService:
 
     # Encodings tried in order when the file isn't valid UTF-8.
     # Order matters:
-    # * ``utf-8-sig`` runs before ``utf-8`` so the BOM is stripped instead
-    #   of leaking into the decoded string as ``\ufeff`` (plain ``utf-8``
-    #   accepts a leading BOM but keeps it as a real character, which then
-    #   breaks timestamp parsing if the SRT has no index line).
+    # * ``utf-8-sig`` covers both UTF-8 with and without BOM: it strips a
+    #   leading BOM if present, otherwise behaves identically to plain
+    #   ``utf-8``. There is therefore no need to also list ``utf-8``.
     # * ``cp1252`` and ``latin-1`` accept almost any byte stream so anything
     #   stricter must run first or CJK content would silently become
     #   mojibake (你好 → ÄãºÃ).
@@ -55,7 +54,6 @@ class CaptionService:
     #   guaranteed to return a string for any existing file.
     _ENCODING_FALLBACKS: tuple[str, ...] = (
         "utf-8-sig",
-        "utf-8",
         "gbk",
         "cp1252",
         "latin-1",
