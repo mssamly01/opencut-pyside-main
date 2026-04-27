@@ -1092,6 +1092,7 @@ class TimelineController(QObject):
         position_y: float | None = None,
         scale: float | None = None,
         rotation: float | None = None,
+        font_size: int | None = None,
     ) -> bool:
         clip = self._find_clip_by_id(clip_id)
         if clip is None:
@@ -1110,6 +1111,7 @@ class TimelineController(QObject):
             ("position_y", position_y, lambda v: max(-2.0, min(3.0, float(v)))),
             ("scale", scale, lambda v: max(0.05, min(8.0, float(v)))),
             ("rotation", rotation, lambda v: ((float(v) + 180.0) % 360.0) - 180.0),
+            ("font_size", font_size, lambda v: max(8, min(800, int(round(float(v)))))),
         ):
             if value is None or not hasattr(clip, attr):
                 continue
@@ -1118,7 +1120,9 @@ class TimelineController(QObject):
             if abs(float(current_value) - float(next_value)) <= 1e-6:
                 continue
             updates.append(UpdatePropertyCommand(clip, attr, next_value))
-            if self._auto_keyframe_enabled:
+            # font_size is an int property without a matching keyframe list, so
+            # skip the auto-keyframe path and only emit the property update.
+            if self._auto_keyframe_enabled and attr != "font_size":
                 updates.append(
                     AddKeyframeCommand(
                         clip,
