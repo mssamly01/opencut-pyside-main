@@ -169,7 +169,7 @@ class TimelineScene(QGraphicsScene):
             if available_height > stack_height:
                 current_y += (available_height - stack_height) / 2.0
 
-        for index, (track, lane_height) in enumerate(zip(tracks, lane_heights)):
+        for index, (track, lane_height) in enumerate(zip(tracks, lane_heights, strict=False)):
             self.track_layouts.append(TrackLayout(track_id=track.track_id, y=current_y, height=lane_height))
             current_y += lane_height
             if index < len(inter_track_gaps):
@@ -528,7 +528,7 @@ class TimelineScene(QGraphicsScene):
         if len(tracks) < 2:
             return []
         gaps: list[float] = []
-        for upper, lower in zip(tracks, tracks[1:]):
+        for upper, lower in zip(tracks, tracks[1:], strict=False):
             gap = self.track_gap
             if upper.is_main or lower.is_main:
                 gap = max(gap, self.main_adjacent_gap)
