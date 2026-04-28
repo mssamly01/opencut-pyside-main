@@ -134,7 +134,7 @@ def test_pool_respawns_when_caller_seeks_backwards(tmp_path: Path) -> None:
     fake_ffmpeg = _write_fake_ffmpeg(tmp_path, frame_count=4, width=width, height=height)
     media_file = _media_file(tmp_path)
 
-    pool = PersistentFFmpegFramePool(_FakeFFmpegGateway(fake_ffmpeg), max_active=2)
+    pool = PersistentFFmpegFramePool(_FakeFFmpegGateway(fake_ffmpeg), max_active=4)
     try:
         forward = pool.read_frames(
             media_path=str(media_file),
@@ -160,7 +160,10 @@ def test_pool_respawns_when_caller_seeks_backwards(tmp_path: Path) -> None:
         )
         assert [idx for idx, _ in seek_back] == [0]
         assert _bmp_pixel_byte(seek_back[0][1], width, height) == 0
-        assert pool.active_reader_count() == 1
+        # Multi-reader pool keeps the earlier (forward-position) reader
+        # alive for future scrub-back-to-here reuse, alongside the new
+        # backward reader. Per-key cap defaults to 3.
+        assert pool.active_reader_count() == 2
     finally:
         pool.close()
 
