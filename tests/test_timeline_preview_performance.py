@@ -14,7 +14,7 @@ from app.ui.timeline.clip_item import ClipItem
 from app.ui.timeline.playhead_item import PlayheadItem
 from app.ui.timeline.timeline_scene import TimelineScene
 from PySide6.QtCore import QRectF
-from PySide6.QtGui import QColor, QImage
+from PySide6.QtGui import QColor, QImage, QPixmap
 
 
 class _StubTimelineController:
@@ -144,6 +144,29 @@ def test_waveform_paint_samples_to_visible_width() -> None:
     path = item._waveform_path()
 
     assert path.elementCount() <= 42
+
+
+def test_video_clip_paints_preview_tiles_without_child_pixmap_items() -> None:
+    thumbnail = QPixmap(16, 9)
+    thumbnail.fill(QColor("#224466"))
+    clip = VideoClip(
+        clip_id="clip-1",
+        name="Long Clip",
+        track_id="track-1",
+        timeline_start=0.0,
+        duration=3600.0,
+        media_id="media-1",
+    )
+
+    item = ClipItem(
+        clip=clip,
+        rect=QRectF(0.0, 0.0, 160.0, 48.0),
+        color_hex="#4a78d0",
+        thumbnails=[thumbnail],
+    )
+
+    assert len(item._thumbnail_tiles) > 1
+    assert item.childItems() == [item._label]
 
 
 def test_playback_prefetch_frame_count_stays_near_playhead() -> None:

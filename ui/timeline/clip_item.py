@@ -7,7 +7,6 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import (
     QGraphicsItem,
-    QGraphicsPixmapItem,
     QGraphicsRectItem,
     QGraphicsSimpleTextItem,
     QStyleOptionGraphicsItem,
@@ -31,7 +30,7 @@ class ClipItem(QGraphicsRectItem):
         self._thumbnail_sources: list[QPixmap] = [
             pixmap for pixmap in (thumbnails or []) if pixmap is not None and not pixmap.isNull()
         ]
-        self._thumbnail_items: list[QGraphicsPixmapItem] = []
+        self._thumbnail_tiles: list[tuple[QPixmap, QPointF]] = []
         self._waveform_peaks = [max(0.0, min(float(value), 1.0)) for value in (waveform_peaks or [])]
         self.setPos(rect.x(), rect.y())
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemClipsChildrenToShape, True)
@@ -107,6 +106,7 @@ class ClipItem(QGraphicsRectItem):
     ) -> None:
         super().paint(painter, option, widget)
 
+        self._draw_thumbnail_tiles(painter)
         self._draw_waveform(painter)
         self._draw_fade_regions(painter)
         self._draw_badges(painter)
@@ -114,9 +114,7 @@ class ClipItem(QGraphicsRectItem):
         self._draw_keyframe_markers(painter)
 
     def _refresh_thumbnail_pixmaps(self) -> None:
-        for item in self._thumbnail_items:
-            item.setParentItem(None)
-        self._thumbnail_items.clear()
+        self._thumbnail_tiles.clear()
 
         if not self._thumbnail_sources:
             return
@@ -135,15 +133,19 @@ class ClipItem(QGraphicsRectItem):
             if scaled.isNull():
                 continue
 
-            thumbnail_item = QGraphicsPixmapItem(self)
-            thumbnail_item.setOpacity(0.9)
-            thumbnail_item.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
-            thumbnail_item.setZValue(1)
             y_offset = max(0, (tile_height - scaled.height()) // 2)
-            thumbnail_item.setPixmap(scaled)
-            thumbnail_item.setPos(x_cursor, float(y_offset))
-            self._thumbnail_items.append(thumbnail_item)
+            self._thumbnail_tiles.append((scaled, QPointF(x_cursor, float(y_offset))))
             x_cursor += float(scaled.width())
+
+    def _draw_thumbnail_tiles(self, painter: QPainter) -> None:
+        if not self._thumbnail_tiles:
+            return
+
+        painter.save()
+        painter.setOpacity(0.72)
+        for pixmap, position in self._thumbnail_tiles:
+            painter.drawPixmap(position, pixmap)
+        painter.restore()
 
     def _draw_waveform(self, painter: QPainter) -> None:
         path = self._waveform_path()
@@ -152,7 +154,11 @@ class ClipItem(QGraphicsRectItem):
 
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        painter.setPen(QPen(QColor("#d8f4e8"), 1.1))
+        shadow_path = QPainterPath(path)
+        shadow_path.translate(0.0, 1.0)
+        painter.setPen(QPen(QColor(0, 0, 0, 170), 2.2))
+        painter.drawPath(shadow_path)
+        painter.setPen(QPen(QColor("#d8f4e8"), 1.4))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawPath(path)
         painter.restore()
