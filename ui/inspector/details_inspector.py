@@ -37,7 +37,6 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPlainTextEdit,
-    QSizePolicy,
     QStackedWidget,
     QToolButton,
     QVBoxLayout,

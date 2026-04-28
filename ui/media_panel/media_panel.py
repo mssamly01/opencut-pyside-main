@@ -98,7 +98,7 @@ class MediaPanel(QWidget):
         self.placeholder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.placeholder_label.setStyleSheet("color: gray; background-color: transparent;")
         self.placeholder_label.setVisible(False)
-        
+
         # Center the label when the list is resized
         self.media_list.viewport().installEventFilter(self)
 
