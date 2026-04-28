@@ -5,6 +5,7 @@ from pathlib import Path
 from app.controllers.project_controller import ProjectController
 from app.controllers.timeline_controller import TimelineController
 from app.domain.media_asset import MediaAsset
+from app.services.async_media_loader import AsyncMediaThumbnailLoader
 from app.services.thumbnail_service import ThumbnailService
 from app.ui.media_panel.media_item_widget import MediaListWidget
 from app.ui.shared.icons import build_icon, build_pixmap, icon_size
@@ -41,6 +42,12 @@ class MediaPanel(QWidget):
         self._thumbnail_service = thumbnail_service or ThumbnailService()
         self._timeline_controller = timeline_controller
         self._embedded = bool(embedded)
+        self._items_by_media_id: dict[str, QListWidgetItem] = {}
+        self._thumbnail_loader = AsyncMediaThumbnailLoader(
+            self._thumbnail_service,
+            parent=self,
+        )
+        self._thumbnail_loader.thumbnail_ready.connect(self._on_thumbnail_ready)
 
         layout = QVBoxLayout(self)
         if self._embedded:
@@ -127,10 +134,12 @@ class MediaPanel(QWidget):
         if not selected_paths:
             return
 
-        self._project_controller.import_media_files(selected_paths)
+        if not self._project_controller.import_media_files_async(selected_paths):
+            self._project_controller.import_media_files(selected_paths)
 
     def _refresh_media_items(self) -> None:
         self.media_list.clear()
+        self._items_by_media_id.clear()
 
         project = self._project_controller.active_project()
         if project is None or not project.media_items:
@@ -146,8 +155,85 @@ class MediaPanel(QWidget):
             item.setToolTip(self._format_tooltip(media_asset))
             item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter)
             item.setSizeHint(QSize(THUMBNAIL_SIZE.width() + 16, THUMBNAIL_SIZE.height() + 40))
-            item.setIcon(self._build_media_icon(media_asset, project_path))
+            item.setIcon(self._initial_media_icon(media_asset, project_path))
             self.media_list.addItem(item)
+            self._items_by_media_id[media_asset.media_id] = item
+
+    def _initial_media_icon(self, media_asset: MediaAsset, project_path: str | None) -> QIcon:
+        """Return a placeholder icon and schedule the real thumbnail off-thread.
+
+        The previous behaviour called ``ffmpeg`` synchronously inside
+        ``_refresh_media_items``, which froze the UI for several seconds when
+        the user imported one or more long videos. We now show the placeholder
+        immediately and let ``AsyncMediaThumbnailLoader`` deliver the real
+        frame later via ``_on_thumbnail_ready``.
+        """
+
+        media_type = (media_asset.media_type or "").lower()
+        if media_type in ("video", "image"):
+            self._thumbnail_loader.request(media_asset, project_path)
+        return self._build_placeholder_icon(media_type)
+
+    def _on_thumbnail_ready(self, media_id: str, payload: object) -> None:
+        item = self._items_by_media_id.get(media_id)
+        if item is None:
+            return
+        if not isinstance(payload, (bytes, bytearray)) or not payload:
+            return
+        icon = self._compose_thumbnail_icon(bytes(payload))
+        if icon is not None:
+            item.setIcon(icon)
+
+    def _compose_thumbnail_icon(self, thumbnail_bytes: bytes) -> QIcon | None:
+        pixmap = QPixmap()
+        if not pixmap.loadFromData(thumbnail_bytes):
+            return None
+        canvas = QPixmap(THUMBNAIL_SIZE)
+        canvas.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(canvas)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setBrush(QBrush(QColor("#0f1217")))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(canvas.rect(), 6, 6)
+        scaled = pixmap.scaled(
+            THUMBNAIL_SIZE,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        draw_x = (THUMBNAIL_SIZE.width() - scaled.width()) // 2
+        draw_y = (THUMBNAIL_SIZE.height() - scaled.height()) // 2
+        painter.drawPixmap(draw_x, draw_y, scaled)
+        painter.end()
+        return QIcon(canvas)
+
+    def _build_placeholder_icon(self, media_type: str) -> QIcon:
+        placeholder_color = {
+            "video": "#3f6bb8",
+            "image": "#a85fb8",
+            "audio": "#3a9b6f",
+        }.get(media_type, "#c48a38")
+        glyph = {
+            "video": "import-media",
+            "image": "import-media",
+            "audio": "volume",
+        }.get(media_type, "import-subtitle")
+
+        placeholder = QPixmap(THUMBNAIL_SIZE)
+        placeholder.fill(Qt.GlobalColor.transparent)
+
+        painter = QPainter(placeholder)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setBrush(QBrush(QColor(placeholder_color)))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(placeholder.rect(), 6, 6)
+        glyph_pixmap = build_pixmap(glyph, 40, "#ffffff")
+        painter.drawPixmap(
+            (THUMBNAIL_SIZE.width() - glyph_pixmap.width()) // 2,
+            (THUMBNAIL_SIZE.height() - glyph_pixmap.height()) // 2,
+            glyph_pixmap,
+        )
+        painter.end()
+        return QIcon(placeholder)
 
     def _build_media_icon(self, media_asset: MediaAsset, project_path: str | None) -> QIcon:
         media_type = (media_asset.media_type or "").lower()
