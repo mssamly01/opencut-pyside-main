@@ -12,6 +12,7 @@ from app.domain.project import Project
 from app.domain.track import Track
 from app.services.async_media_loader import AsyncFilmstripLoader
 from app.services.thumbnail_service import ThumbnailService
+from app.services.waveform_loader import WaveformLoader
 from app.services.waveform_service import WaveformService
 from app.ui.timeline.clip_item import ClipItem
 from app.ui.timeline.playhead_item import PlayheadItem
@@ -85,6 +86,14 @@ class TimelineScene(QGraphicsScene):
         self._clip_items_by_id: dict[str, ClipItem] = {}
         self._filmstrip_loader = AsyncFilmstripLoader(thumbnail_service, parent=self)
         self._filmstrip_loader.filmstrip_ready.connect(self._on_filmstrip_ready)
+        # Async waveform loader: avoids blocking UI thread on cache-miss
+        # ffmpeg audio extraction (200-2000 ms for cold media). Survives
+        # ``self.clear()`` so re-renders don't re-spawn ffmpeg.
+        self._waveform_loader: WaveformLoader | None = None
+        self._pending_waveform_media_ids: set[str] = set()
+        if waveform_service is not None:
+            self._waveform_loader = WaveformLoader(waveform_service, parent=self)
+            self._waveform_loader.peaks_loaded.connect(self._on_peaks_loaded)
         self.setBackgroundBrush(QBrush(QColor("#1a1a1a")))
         self.render_timeline()
 
@@ -371,11 +380,7 @@ class TimelineScene(QGraphicsScene):
 
             peaks: list[float] = []
             if self._project is not None and self._waveform_service is not None and isinstance(clip, (AudioClip, VideoClip)):
-                peaks = self._waveform_service.get_peaks(
-                    project=self._project,
-                    clip=clip,
-                    project_path=self._project_path,
-                )
+                peaks = self._cached_or_async_peaks(clip)
 
             clip_item = ClipItem(
                 clip=clip,
@@ -431,6 +436,34 @@ class TimelineScene(QGraphicsScene):
     def _filmstrip_cache_key(clip: VideoClip, frame_count: int) -> str:
         source_end = clip.source_end if clip.source_end is not None else -1.0
         return f"{clip.media_id}|{clip.source_start:.4f}|{source_end:.4f}|{frame_count}"
+
+    def _cached_or_async_peaks(self, clip: BaseClip) -> list[float]:
+        """Return cached waveform peaks; queue async extraction on cache miss."""
+
+        if self._project is None or self._waveform_service is None or clip.media_id is None:
+            return []
+        media_asset = next(
+            (asset for asset in self._project.media_items if asset.media_id == clip.media_id),
+            None,
+        )
+        if media_asset is None:
+            return []
+        cached = self._waveform_service.peek_cached_peaks(media_asset, self._project_path)
+        if cached:
+            return cached
+        if self._waveform_loader is not None and media_asset.media_id not in self._pending_waveform_media_ids:
+            self._pending_waveform_media_ids.add(media_asset.media_id)
+            self._waveform_loader.request_peaks(media_asset, self._project_path)
+        return []
+
+    def _on_peaks_loaded(self, media_id: str, peaks: list) -> None:
+        self._pending_waveform_media_ids.discard(media_id)
+        if not peaks:
+            return
+        clipped = [max(0.0, min(float(value), 1.0)) for value in peaks]
+        for clip_item in self._clip_items_by_id.values():
+            if clip_item.clip.media_id == media_id and isinstance(clip_item.clip, (AudioClip, VideoClip)):
+                clip_item.set_waveform_peaks(clipped)
 
     def _on_filmstrip_ready(self, cache_key: str, clip_id: str, frames: list) -> None:
         pixmaps: list[QPixmap] = []
