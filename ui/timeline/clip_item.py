@@ -66,6 +66,15 @@ class ClipItem(QGraphicsRectItem):
             return "fade_out"
         return None
 
+    def set_thumbnails(self, thumbnails: list[QPixmap]) -> None:
+        """Replace the filmstrip pixmaps and re-tile (used by the async loader)."""
+
+        self._thumbnail_sources = [
+            pixmap for pixmap in thumbnails if pixmap is not None and not pixmap.isNull()
+        ]
+        self._refresh_thumbnail_pixmaps()
+        self.update()
+
     def set_display_geometry(self, scene_x: float, width: float) -> None:
         clamped_width = max(1.0, width)
         self.setPos(scene_x, self.scenePos().y())
