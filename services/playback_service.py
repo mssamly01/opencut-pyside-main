@@ -25,9 +25,9 @@ class PreviewFrameResult:
 
 
 class PlaybackService:
-    _PREFETCH_WINDOW_SECONDS = 2.2
-    _MIN_PREFETCH_FRAME_COUNT = 24
-    _MAX_PREFETCH_FRAME_COUNT = 96
+    _PREFETCH_WINDOW_SECONDS = 0.35
+    _MIN_PREFETCH_FRAME_COUNT = 6
+    _MAX_PREFETCH_FRAME_COUNT = 18
     _headless_qt_app: object | None = None
 
     def __init__(
@@ -107,15 +107,6 @@ class PlaybackService:
             normalized_media_path, safe_fps, frame_index, extra_video_filters=extra_filters
         )
         if cached_frame is not None:
-            if prefetch_enabled:
-                self._prefetch_window(
-                    media_path=normalized_media_path,
-                    fps=safe_fps,
-                    frame_index=frame_index + 1,
-                    media_asset=media_asset,
-                    extra_video_filters=extra_filters,
-                    frame_dimensions=frame_dimensions,
-                )
             return PreviewFrameResult(frame_bytes=cached_frame, message=media_asset.name)
 
         if prefetch_enabled:

@@ -60,6 +60,13 @@ class _DragState:
     start_font_size: int = 0
 
 
+@dataclass(slots=True, frozen=True)
+class _PreviewTransformState:
+    image_cache_key: int
+    target_size: tuple[int, int]
+    is_playing: bool
+
+
 class _PreviewCanvas(QWidget):
     def __init__(
         self,
@@ -78,6 +85,8 @@ class _PreviewCanvas(QWidget):
         self._is_playing = False
         self._safe_zone_enabled = False
         self._drag_state: _DragState | None = None
+        self._scaled_preview_pixmap: QPixmap | None = None
+        self._scaled_preview_state: _PreviewTransformState | None = None
 
         self.setMouseTracking(True)
         self.setMinimumHeight(240)
@@ -119,14 +128,7 @@ class _PreviewCanvas(QWidget):
                 f"{self._preview_message}\nTime: {self._current_time:0.2f}s",
             )
         else:
-            pixmap = QPixmap.fromImage(self._preview_image)
-            scaled = pixmap.scaled(
-                project_rect.size().toSize(),
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.FastTransformation
-                if self._is_playing
-                else Qt.TransformationMode.SmoothTransformation,
-            )
+            scaled = self._scaled_preview(project_rect)
             draw_x = project_rect.x() + (project_rect.width() - scaled.width()) / 2.0
             draw_y = project_rect.y() + (project_rect.height() - scaled.height()) / 2.0
             active_clip = self._currently_rendered_clip()
@@ -198,6 +200,27 @@ class _PreviewCanvas(QWidget):
         if self._safe_zone_enabled:
             self._draw_safe_zone(painter, project_rect)
         self._draw_transform_overlay(painter, project_rect)
+
+    def _scaled_preview(self, project_rect: QRectF) -> QPixmap:
+        if self._preview_image is None:
+            return QPixmap()
+        target_size = project_rect.size().toSize()
+        state = _PreviewTransformState(
+            image_cache_key=self._preview_image.cacheKey(),
+            target_size=(target_size.width(), target_size.height()),
+            is_playing=self._is_playing,
+        )
+        if self._scaled_preview_state == state and self._scaled_preview_pixmap is not None:
+            return self._scaled_preview_pixmap
+        self._scaled_preview_state = state
+        self._scaled_preview_pixmap = QPixmap.fromImage(self._preview_image).scaled(
+            target_size,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.FastTransformation
+            if self._is_playing
+            else Qt.TransformationMode.SmoothTransformation,
+        )
+        return self._scaled_preview_pixmap
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() != Qt.MouseButton.LeftButton:

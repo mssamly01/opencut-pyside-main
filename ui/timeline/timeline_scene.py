@@ -486,11 +486,11 @@ class TimelineScene(QGraphicsScene):
                 item.set_selected_state(item.clip.clip_id in self._selected_clip_id_set)
 
     def _update_playhead(self, scene_height: float) -> None:
-        if self._playhead_item is not None:
-            self.removeItem(self._playhead_item)
-            self._playhead_item = None
-
         playhead_x = self.left_gutter + self._playhead_seconds * self.pixels_per_second
+        if self._playhead_item is not None:
+            self._playhead_item.set_scene_x(playhead_x)
+            return
+
         playhead_bounds = QRectF(playhead_x, self.ruler_height, 0.0, scene_height - self.ruler_height)
         self._playhead_item = PlayheadItem(playhead_x, playhead_bounds)
         self.addItem(self._playhead_item)
