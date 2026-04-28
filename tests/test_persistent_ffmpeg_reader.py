@@ -12,7 +12,6 @@ import os
 import stat
 from pathlib import Path
 
-import pytest
 from app.infrastructure.ffmpeg_gateway import FFmpegGateway
 from app.infrastructure.persistent_ffmpeg_reader import (
     PersistentFFmpegFramePool,
@@ -21,12 +20,16 @@ from app.infrastructure.persistent_ffmpeg_reader import (
 
 
 def _write_fake_ffmpeg(tmp_path: Path, frame_count: int, width: int, height: int) -> Path:
-    """Write a Python script that emits ``frame_count`` raw BGRA frames on stdout.
+    """Write a fake ffmpeg that emits ``frame_count`` raw BGRA frames on stdout.
 
     Frame N is filled with the byte ``N`` (mod 256) so tests can assert the
     pool returned the expected sequence. The script ignores all arguments
     other than its own existence, which is exactly the contract the pool
     needs because the pool only cares about the stdout byte stream.
+
+    On POSIX we return a Python script with a shebang. On Windows we return
+    a ``.cmd`` shim that invokes the same Python script, because Windows
+    cannot exec ``.py`` files via ``Popen([path, ...])`` directly.
     """
 
     import sys
@@ -48,6 +51,11 @@ def _write_fake_ffmpeg(tmp_path: Path, frame_count: int, width: int, height: int
         )
     )
     script_path.chmod(script_path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+
+    if os.name == "nt":
+        cmd_path = tmp_path / "fake_ffmpeg.cmd"
+        cmd_path.write_text(f'@"{sys.executable}" "{script_path}" %*\r\n')
+        return cmd_path
     return script_path
 
 
@@ -226,7 +234,6 @@ def test_pool_returns_empty_when_media_path_missing(tmp_path: Path) -> None:
         pool.close()
 
 
-@pytest.mark.skipif(os.name == "nt", reason="bash-script fake ffmpeg not portable to Windows CI")
 def test_video_decoder_uses_pool_when_dimensions_provided(tmp_path: Path) -> None:
     from app.infrastructure.video_decoder import VideoDecoder
 
