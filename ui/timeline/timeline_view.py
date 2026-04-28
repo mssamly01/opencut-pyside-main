@@ -105,6 +105,7 @@ class TimelineView(QGraphicsView):
         self._header_resize_start_scene_y = 0.0
         self._header_resize_start_height = 0.0
         self._header_resize_pending_height = 0.0
+        self._marquee_pending = False
         self._marquee_active = False
         self._marquee_start_scene = (0.0, 0.0)
         self._marquee_current_scene = (0.0, 0.0)
@@ -344,7 +345,8 @@ class TimelineView(QGraphicsView):
         if clip_item is None:
             if not multiselect:
                 self._selection_controller.clear_selection()
-            self._marquee_active = True
+            self._marquee_pending = True
+            self._marquee_active = False
             self._marquee_start_scene = (scene_pos.x(), scene_pos.y())
             self._marquee_current_scene = (scene_pos.x(), scene_pos.y())
             self._marquee_initial_selection = self._selection_controller.selected_clip_ids()
@@ -429,6 +431,17 @@ class TimelineView(QGraphicsView):
             event.accept()
             return
 
+        if self._marquee_pending and not self._is_dragging:
+            self._marquee_current_scene = (scene_pos.x(), scene_pos.y())
+            dx = abs(self._marquee_current_scene[0] - self._marquee_start_scene[0])
+            dy = abs(self._marquee_current_scene[1] - self._marquee_start_scene[1])
+            if dx >= 4.0 or dy >= 4.0:
+                self._marquee_active = True
+            if self._marquee_active:
+                self.viewport().update()
+            event.accept()
+            return
+
         if self._marquee_active and not self._is_dragging:
             self._marquee_current_scene = (scene_pos.x(), scene_pos.y())
             self.viewport().update()
@@ -503,22 +516,24 @@ class TimelineView(QGraphicsView):
         event.accept()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
-        if event.button() == Qt.MouseButton.LeftButton and self._marquee_active and not self._is_dragging:
+        if event.button() == Qt.MouseButton.LeftButton and not self._is_dragging and (self._marquee_active or self._marquee_pending):
+            if self._marquee_active:
+                selection_rect = self._marquee_scene_rect()
+                hit_ids = self._clip_ids_intersecting_scene_rect(selection_rect)
+                modifiers = event.modifiers()
+                multiselect = bool(modifiers & (Qt.KeyboardModifier.ShiftModifier | Qt.KeyboardModifier.ControlModifier))
+                if multiselect:
+                    merged = list(self._marquee_initial_selection)
+                    for clip_id in hit_ids:
+                        if clip_id not in merged:
+                            merged.append(clip_id)
+                    self._selection_controller.set_selection(merged)
+                else:
+                    self._selection_controller.set_selection(hit_ids)
+                self.viewport().update()
+            self._marquee_pending = False
             self._marquee_active = False
-            selection_rect = self._marquee_scene_rect()
-            hit_ids = self._clip_ids_intersecting_scene_rect(selection_rect)
-            modifiers = event.modifiers()
-            multiselect = bool(modifiers & (Qt.KeyboardModifier.ShiftModifier | Qt.KeyboardModifier.ControlModifier))
-            if multiselect:
-                merged = list(self._marquee_initial_selection)
-                for clip_id in hit_ids:
-                    if clip_id not in merged:
-                        merged.append(clip_id)
-                self._selection_controller.set_selection(merged)
-            else:
-                self._selection_controller.set_selection(hit_ids)
             self._marquee_initial_selection = []
-            self.viewport().update()
             event.accept()
             return
 
@@ -919,6 +934,7 @@ class TimelineView(QGraphicsView):
         self._pending_fade_seconds = None
         self._timeline_scene.hide_snap_guide()
         self.setCursor(Qt.CursorShape.ArrowCursor)
+        self._marquee_pending = False
         self._marquee_active = False
 
     def drawForeground(self, painter: QPainter, rect: QRectF) -> None:
@@ -930,7 +946,8 @@ class TimelineView(QGraphicsView):
             return
         painter.save()
         painter.setPen(QPen(QColor("#00bcd4"), 1.0, Qt.PenStyle.DashLine))
-        painter.setBrush(QBrush(QColor(0, 188, 212, 35)))
+        # Keep marquee as outline-only so lane separators stay visible while dragging.
+        painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(selection_rect)
         painter.restore()
 

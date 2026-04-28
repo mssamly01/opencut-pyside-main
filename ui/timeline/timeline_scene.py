@@ -453,8 +453,9 @@ class TimelineScene(QGraphicsScene):
                 label_text,
             )
 
-        # Sticky header is rendered at the left of visible rect.
-        sticky_left = rect.left()
+        # Sticky header must follow the view's left edge. Using the repaint
+        # rect directly can drift during partial updates and overpaint lanes.
+        sticky_left = self._visible_scene_left(rect.left())
         scene_bottom = self.sceneRect().height()
         header_bg_rect = QRectF(sticky_left, 0.0, self.left_gutter, scene_bottom)
         painter.fillRect(header_bg_rect, QColor("#303030"))
@@ -511,6 +512,15 @@ class TimelineScene(QGraphicsScene):
             painter.setPen(QColor("#0f141d" if button_spec.active else "#cdd4dc"))
             painter.drawText(button_rect, Qt.AlignmentFlag.AlignCenter, button_spec.label)
         painter.restore()
+
+    def _visible_scene_left(self, fallback_left: float) -> float:
+        views = self.views()
+        if not views:
+            return fallback_left
+        viewport_rect = views[0].viewport().rect()
+        if viewport_rect.isNull():
+            return fallback_left
+        return views[0].mapToScene(viewport_rect).boundingRect().left()
 
     def _project_track(self, track_id: str) -> Track | None:
         if self._project is None:
