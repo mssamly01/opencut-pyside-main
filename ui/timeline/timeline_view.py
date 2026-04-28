@@ -64,7 +64,7 @@ class TimelineView(QGraphicsView):
         self.setAcceptDrops(True)
         self.viewport().setAcceptDrops(True)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.DefaultContextMenu)
-        self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
+        self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.BoundingRectViewportUpdate)
         self.horizontalScrollBar().valueChanged.connect(self._on_scroll_changed)
         self.verticalScrollBar().valueChanged.connect(self._on_scroll_changed)
 

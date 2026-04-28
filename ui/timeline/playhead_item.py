@@ -59,6 +59,13 @@ class PlayheadItem(QGraphicsLineItem):
         )
         return line_hit or marker_hit
 
+    def set_scene_x(self, x_position: float) -> None:
+        delta = x_position - self._x_position
+        if abs(delta) < 1e-6:
+            return
+        self._x_position = x_position
+        self.moveBy(delta, 0.0)
+
     @property
     def scene_x(self) -> float:
         return self._x_position

@@ -146,29 +146,9 @@ class ClipItem(QGraphicsRectItem):
             x_cursor += float(scaled.width())
 
     def _draw_waveform(self, painter: QPainter) -> None:
-        if not self._waveform_peaks or not isinstance(self.clip, (AudioClip, VideoClip)):
+        path = self._waveform_path()
+        if path.elementCount() <= 1:
             return
-
-        rect = self.rect()
-        width = rect.width()
-        height = rect.height()
-        if width < 8 or height < 12:
-            return
-
-        path = QPainterPath()
-        baseline_y = height * 0.62
-        amplitude = max(6.0, height * 0.22)
-        count = len(self._waveform_peaks)
-        if count <= 1:
-            return
-
-        for index, peak in enumerate(self._waveform_peaks):
-            x = (index / (count - 1)) * width
-            y = baseline_y - peak * amplitude
-            if index == 0:
-                path.moveTo(x, y)
-            else:
-                path.lineTo(x, y)
 
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
@@ -176,6 +156,40 @@ class ClipItem(QGraphicsRectItem):
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawPath(path)
         painter.restore()
+
+    def _waveform_path(self) -> QPainterPath:
+        path = QPainterPath()
+        if not self._waveform_peaks or not isinstance(self.clip, (AudioClip, VideoClip)):
+            return path
+
+        rect = self.rect()
+        width = rect.width()
+        height = rect.height()
+        if width < 8 or height < 12:
+            return path
+
+        baseline_y = height * 0.62
+        amplitude = max(6.0, height * 0.22)
+        count = len(self._waveform_peaks)
+        if count <= 1:
+            return path
+
+        step = max(1, count // max(1, int(width)))
+        sampled_peaks = list(self._waveform_peaks[::step])
+        if sampled_peaks[-1] != self._waveform_peaks[-1]:
+            sampled_peaks.append(self._waveform_peaks[-1])
+        sampled_count = len(sampled_peaks)
+        if sampled_count <= 1:
+            return path
+
+        for index, peak in enumerate(sampled_peaks):
+            x = (index / (sampled_count - 1)) * width
+            y = baseline_y - peak * amplitude
+            if index == 0:
+                path.moveTo(x, y)
+            else:
+                path.lineTo(x, y)
+        return path
 
     def _draw_fade_regions(self, painter: QPainter) -> None:
         if self.clip.duration <= 1e-6:
@@ -318,4 +332,3 @@ class ClipItem(QGraphicsRectItem):
         minutes = int(safe // 60)
         seconds = safe - minutes * 60
         return f"{minutes}:{seconds:05.2f}"
-
