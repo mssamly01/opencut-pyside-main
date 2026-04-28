@@ -235,67 +235,6 @@ class MediaPanel(QWidget):
         painter.end()
         return QIcon(placeholder)
 
-    def _build_media_icon(self, media_asset: MediaAsset, project_path: str | None) -> QIcon:
-        media_type = (media_asset.media_type or "").lower()
-
-        if media_type in ("video", "image"):
-            try:
-                thumbnail_bytes = self._thumbnail_service.get_media_asset_thumbnail_bytes(
-                    media_asset,
-                    project_path=project_path,
-                    source_time=0.0,
-                )
-            except Exception:
-                thumbnail_bytes = None
-            if thumbnail_bytes:
-                pixmap = QPixmap()
-                if pixmap.loadFromData(thumbnail_bytes):
-                    canvas = QPixmap(THUMBNAIL_SIZE)
-                    canvas.fill(Qt.GlobalColor.transparent)
-                    painter = QPainter(canvas)
-                    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-                    painter.setBrush(QBrush(QColor("#0f1217")))
-                    painter.setPen(Qt.PenStyle.NoPen)
-                    painter.drawRoundedRect(canvas.rect(), 6, 6)
-                    scaled = pixmap.scaled(
-                        THUMBNAIL_SIZE,
-                        Qt.AspectRatioMode.KeepAspectRatio,
-                        Qt.TransformationMode.SmoothTransformation,
-                    )
-                    draw_x = (THUMBNAIL_SIZE.width() - scaled.width()) // 2
-                    draw_y = (THUMBNAIL_SIZE.height() - scaled.height()) // 2
-                    painter.drawPixmap(draw_x, draw_y, scaled)
-                    painter.end()
-                    return QIcon(canvas)
-
-        placeholder_color = {
-            "video": "#3f6bb8",
-            "image": "#a85fb8",
-            "audio": "#3a9b6f",
-        }.get(media_type, "#c48a38")
-        glyph = {
-            "video": "import-media",
-            "image": "import-media",
-            "audio": "volume",
-        }.get(media_type, "import-subtitle")
-
-        placeholder = QPixmap(THUMBNAIL_SIZE)
-        placeholder.fill(Qt.GlobalColor.transparent)
-
-        painter = QPainter(placeholder)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        painter.setBrush(QBrush(QColor(placeholder_color)))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawRoundedRect(placeholder.rect(), 6, 6)
-        glyph_pixmap = build_pixmap(glyph, 40, "#ffffff")
-        painter.drawPixmap(
-            (THUMBNAIL_SIZE.width() - glyph_pixmap.width()) // 2,
-            (THUMBNAIL_SIZE.height() - glyph_pixmap.height()) // 2,
-            glyph_pixmap,
-        )
-        painter.end()
-        return QIcon(placeholder)
-
     @staticmethod
     def _format_short_label(media_asset: MediaAsset) -> str:
         file_name = Path(media_asset.file_path).name if media_asset.file_path else media_asset.name

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from collections import OrderedDict
 from pathlib import Path
 
@@ -26,6 +27,12 @@ class ThumbnailService:
         self._max_memory_entries = (
             max_memory_entries if max_memory_entries is not None else self._MAX_MEMORY_ENTRIES
         )
+        # AsyncMediaThumbnailLoader runs workers in a QThreadPool that may
+        # execute several get_media_asset_thumbnail_bytes() calls in parallel.
+        # The OrderedDict ops below are not atomic, so we serialize the
+        # in-memory cache touches with a lock — the on-disk read/write and the
+        # ffmpeg subprocess stay outside the critical section.
+        self._memory_cache_lock = threading.Lock()
 
     def get_thumbnail_bytes(
         self,
@@ -128,18 +135,20 @@ class ThumbnailService:
         return frame_bytes
 
     def clear_memory_cache(self) -> None:
-        self._memory_cache.clear()
+        with self._memory_cache_lock:
+            self._memory_cache.clear()
 
     def _remember_in_cache(self, cache_key: str, payload: bytes) -> None:
-        cache = self._memory_cache
-        if cache_key in cache:
-            cache.move_to_end(cache_key)
-            cache[cache_key] = payload
-            return
+        with self._memory_cache_lock:
+            cache = self._memory_cache
+            if cache_key in cache:
+                cache.move_to_end(cache_key)
+                cache[cache_key] = payload
+                return
 
-        cache[cache_key] = payload
-        while len(cache) > self._max_memory_entries:
-            cache.popitem(last=False)
+            cache[cache_key] = payload
+            while len(cache) > self._max_memory_entries:
+                cache.popitem(last=False)
 
     def _persist_cache(self, cache_path: Path, payload: bytes) -> None:
         try:
@@ -204,10 +213,11 @@ class ThumbnailService:
 
     def _read_cached_bytes(self, cache_path: Path) -> bytes | None:
         cache_key = str(cache_path)
-        cached = self._memory_cache.get(cache_key)
-        if cached is not None:
-            self._memory_cache.move_to_end(cache_key)
-            return cached
+        with self._memory_cache_lock:
+            cached = self._memory_cache.get(cache_key)
+            if cached is not None:
+                self._memory_cache.move_to_end(cache_key)
+                return cached
 
         if cache_path.exists() and cache_path.is_file():
             try:

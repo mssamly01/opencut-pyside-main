@@ -107,6 +107,45 @@ def test_project_controller_emits_media_import_finished_with_new_ids() -> None:
     assert controller.active_project().media_items == [asset]
 
 
+def test_thumbnail_service_memory_cache_is_thread_safe(tmp_path) -> None:
+    """Stress the OrderedDict cache from multiple threads.
+
+    Without the lock, ``_read_cached_bytes`` would race with
+    ``_remember_in_cache``: a thread can call ``.get(key)`` and find a hit,
+    then ``popitem(last=False)`` on another thread evicts that key before the
+    first thread reaches ``.move_to_end(key)`` — raising ``KeyError`` and
+    silently dropping the thumbnail. This pins the lock that prevents it.
+    """
+
+    import threading
+    from app.services.thumbnail_service import ThumbnailService
+
+    service = ThumbnailService(cache_root=tmp_path, max_memory_entries=8)
+    payload = b"\x89PNG\r\n\x1a\n"
+    errors: list[BaseException] = []
+    stop = threading.Event()
+
+    def thrash() -> None:
+        try:
+            for index in range(2000):
+                if stop.is_set():
+                    return
+                key_path = tmp_path / f"{index % 32}.png"
+                service._write_cached_bytes(key_path, payload)  # noqa: SLF001
+                service._read_cached_bytes(key_path)  # noqa: SLF001
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+            stop.set()
+
+    threads = [threading.Thread(target=thrash) for _ in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert not errors, f"thread-unsafe cache raised: {errors}"
+
+
 def test_thumbnail_loader_dedupes_in_flight_requests() -> None:
     create_application(["pytest"])
     service = _StubThumbnailService(payload=b"\x89PNG\r\n\x1a\n")
