@@ -705,7 +705,7 @@ class PreviewWidget(QWidget):
         bottom_bar = QWidget(self)
         bottom_bar.setObjectName("previewBottomBar")
         bottom_bar.setFixedHeight(44)
-        bottom_bar.setStyleSheet("#previewBottomBar { background: #262626; border-top: 1px solid #2a2f37; }")
+        bottom_bar.setStyleSheet("#previewBottomBar { background: #262626; border-top: none; }")
         bottom_layout = QHBoxLayout(bottom_bar)
         bottom_layout.setContentsMargins(8, 4, 8, 4)
         bottom_layout.setSpacing(8)
@@ -714,13 +714,15 @@ class PreviewWidget(QWidget):
         bottom_layout.addWidget(self._time_label, alignment=Qt.AlignmentFlag.AlignLeft)
 
         bottom_layout.addStretch(1)
+        self._play_button = PlaybackPlayButton(self._playback_controller, bottom_bar)
         bottom_layout.addWidget(
-            PlaybackPlayButton(self._playback_controller, bottom_bar),
+            self._play_button,
             alignment=Qt.AlignmentFlag.AlignCenter,
         )
         bottom_layout.addStretch(1)
 
         right_group = QWidget(bottom_bar)
+        right_group.setStyleSheet("background: transparent;")
         right_group_layout = QHBoxLayout(right_group)
         right_group_layout.setContentsMargins(0, 0, 0, 0)
         right_group_layout.setSpacing(6)
@@ -728,8 +730,8 @@ class PreviewWidget(QWidget):
 
         icon_tool_style = (
             "QToolButton { border: none; background: transparent; border-radius: 4px; padding: 0px; }"
-            "QToolButton:hover { border: none; background: rgba(255,255,255,0.14); }"
-            "QToolButton:pressed { border: none; background: rgba(255,255,255,0.20); }"
+            "QToolButton:hover { border: none; background: transparent; }"
+            "QToolButton:pressed { border: none; background: transparent; }"
         )
 
         zoom_button = QToolButton(right_group)
@@ -745,8 +747,8 @@ class PreviewWidget(QWidget):
         self._aspect_menu_button.setFlat(False)
         self._aspect_menu_button.setFixedHeight(control_height)
         self._aspect_menu_button.setStyleSheet(
-            "QPushButton { border: 1px solid #384256; border-radius: 4px; padding: 0 10px; background: #222a36; color: #d6deea; }"
-            "QPushButton:hover { background: #2a3443; border-color: #445069; }"
+            "QPushButton { border: none; border-radius: 4px; padding: 0 10px; background: transparent; color: #d6deea; }"
+            "QPushButton:hover { background: transparent; }"
             "QPushButton::menu-indicator { image: none; width: 0px; }"
         )
         self._aspect_menu_button.setToolTip(self.tr("Đổi tỉ lệ khung hình dự án"))
@@ -804,6 +806,7 @@ class PreviewWidget(QWidget):
         project = self._project_controller.active_project()
         total_seconds = project.timeline.total_duration() if project is not None else 0.0
         self._time_label.set_total_seconds(total_seconds)
+        self._play_button.update_enabled_state(total_seconds)
 
     def _on_current_time_changed(self, current_time: float) -> None:
         self._current_time = current_time

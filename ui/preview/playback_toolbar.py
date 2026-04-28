@@ -15,7 +15,7 @@ class PlaybackTimeLabel(QLabel):
         self._total_seconds = 0.0
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setMinimumWidth(220)
-        self.setStyleSheet("color: #cdd4dc; font-family: monospace;")
+        self.setStyleSheet("color: #cdd4dc; font-family: monospace; background: transparent;")
 
         self._playback_controller.current_time_changed.connect(self._refresh)
         self._refresh(self._playback_controller.current_time())
@@ -52,12 +52,15 @@ class PlaybackPlayButton(QPushButton):
         self.setFixedSize(QSize(44, 36))
         self.setIconSize(QSize(18, 18))
         self.setStyleSheet(
-            "QPushButton { background: rgba(255,255,255,0.08); border-radius: 6px; }"
-            "QPushButton:hover { background: rgba(255,255,255,0.16); }"
+            "QPushButton { background: transparent; border: none; }"
+            "QPushButton:hover { background: transparent; }"
         )
         self.clicked.connect(self._playback_controller.toggle_play_pause)
         self._playback_controller.playback_state_changed.connect(self._on_state_changed)
         self._on_state_changed(self._playback_controller.state())
+
+    def update_enabled_state(self, total_duration: float) -> None:
+        self.setEnabled(total_duration > 0.0)
 
     def _on_state_changed(self, state: str) -> None:
         if state == "playing":

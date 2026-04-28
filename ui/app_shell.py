@@ -135,7 +135,7 @@ class AppShell(QWidget):
         center_region_container = QWidget(self)
         center_region_container.setObjectName("workspace_center_region_container")
         center_region_layout = QVBoxLayout(center_region_container)
-        center_region_layout.setContentsMargins(3, 6, 3, 4)
+        center_region_layout.setContentsMargins(0, 0, 0, 0)
         center_region_layout.setSpacing(0)
         center_region_layout.addWidget(
             self._build_region_header(self.tr("Xem trước"), parent=center_region_container)
@@ -148,7 +148,7 @@ class AppShell(QWidget):
         right_region_container = QWidget(self)
         right_region_container.setObjectName("workspace_right_region_container")
         right_region_layout = QVBoxLayout(right_region_container)
-        right_region_layout.setContentsMargins(3, 6, 0, 4)
+        right_region_layout.setContentsMargins(0, 0, 0, 0)
         right_region_layout.setSpacing(0)
         right_region_layout.addWidget(
             self._build_region_header(self.tr("Chi tiết"), accent=True, parent=right_region_container)

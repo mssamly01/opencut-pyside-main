@@ -202,12 +202,16 @@ QSplitter::handle:vertical { height: 4px; }
 QWidget#workspace_left_region_container,
 QWidget#workspace_center_region_container,
 QWidget#workspace_right_region_container {
-    background-color: #141414;
+    background-color: #262626;
 }
 QWidget#workspace_preview_region {
     background-color: #262626;
 }
-QWidget#workspace_inspector_region {
+QWidget#workspace_inspector_region,
+QWidget#workspace_inspector_region QScrollArea,
+QWidget#workspace_inspector_region QScrollArea > QWidget,
+DetailsInspector,
+DetailsInspector QWidget {
     background-color: #262626;
     border: none;
 }
