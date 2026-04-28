@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.domain.project import Project, build_demo_project, build_empty_project
+from app.services.async_media_loader import AsyncMediaImporter
 from app.services.media_service import MediaService
 from app.services.project_service import ProjectService
 from PySide6.QtCore import QObject, Signal
@@ -12,18 +13,24 @@ class ProjectController(QObject):
     project_changed = Signal()
     project_modified = Signal()
     media_assets_changed = Signal()
+    media_import_started = Signal()
+    media_import_finished = Signal(list)  # list of newly-added media_ids
 
     def __init__(
         self,
         parent: QObject | None = None,
         media_service: MediaService | None = None,
         project_service: ProjectService | None = None,
+        async_media_importer: AsyncMediaImporter | None = None,
     ) -> None:
         super().__init__(parent)
         self._active_project: Project | None = None
         self._active_project_path: str | None = None
         self._media_service = media_service or MediaService()
         self._project_service = project_service or ProjectService()
+        self._async_media_importer = async_media_importer
+        self._async_import_active = False
+        self._pending_async_import_paths: list[str] | None = None
 
     def set_active_project(self, project: Project | None, project_path: str | None = None) -> None:
         normalized_path = self._normalize_project_path(project_path)
@@ -70,6 +77,71 @@ class ProjectController(QObject):
         self.project_changed.emit()
         self.project_modified.emit()
         return [asset.media_id for asset in imported_assets]
+
+    def import_media_files_async(self, file_paths: list[str]) -> bool:
+        """Run ffprobe in a worker thread; emits ``media_import_finished`` when done.
+
+        Returns False if there is no active project (caller can fall back to the
+        synchronous path). Subsequent calls while an import is in flight queue
+        the new paths and run after the current batch completes so they cannot
+        race against the main-thread mutation of ``project.media_items``.
+        """
+
+        project = self._active_project
+        if project is None:
+            return False
+
+        normalized = [path for path in file_paths if path]
+        if not normalized:
+            return True
+
+        importer = self._ensure_async_importer()
+        if self._async_import_active:
+            if self._pending_async_import_paths is None:
+                self._pending_async_import_paths = []
+            self._pending_async_import_paths.extend(normalized)
+            return True
+
+        self._async_import_active = True
+        self.media_import_started.emit()
+        importer.request_import(normalized)
+        return True
+
+    def _ensure_async_importer(self) -> AsyncMediaImporter:
+        if self._async_media_importer is None:
+            importer = AsyncMediaImporter(self._media_service, parent=self)
+            importer.import_completed.connect(self._on_async_import_completed)
+            self._async_media_importer = importer
+        return self._async_media_importer
+
+    def _on_async_import_completed(self, _request_id: int, assets: list) -> None:
+        self._async_import_active = False
+        project = self._active_project
+        if project is None:
+            self._pending_async_import_paths = None
+            self.media_import_finished.emit([])
+            return
+
+        existing_paths = {self._path_key(asset.file_path) for asset in project.media_items}
+        imported_assets = []
+        for asset in assets:
+            path_key = self._path_key(asset.file_path)
+            if path_key in existing_paths:
+                continue
+            existing_paths.add(path_key)
+            imported_assets.append(asset)
+
+        if imported_assets:
+            project.media_items.extend(imported_assets)
+            self.project_changed.emit()
+            self.project_modified.emit()
+
+        self.media_import_finished.emit([asset.media_id for asset in imported_assets])
+
+        pending = self._pending_async_import_paths
+        self._pending_async_import_paths = None
+        if pending:
+            self.import_media_files_async(pending)
 
     def save_active_project(self, file_path: str | None = None) -> str | None:
         project = self._active_project
