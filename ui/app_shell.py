@@ -124,7 +124,7 @@ class AppShell(QWidget):
         left_region_container = QWidget(self)
         left_region_container.setObjectName("workspace_left_region_container")
         left_region_layout = QVBoxLayout(left_region_container)
-        left_region_layout.setContentsMargins(0, 6, 3, 4)
+        left_region_layout.setContentsMargins(0, 0, 0, 0)
         left_region_layout.setSpacing(0)
         left_region_layout.addWidget(left_sidebar, 1)
 
