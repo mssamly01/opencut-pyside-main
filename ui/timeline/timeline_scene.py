@@ -10,6 +10,7 @@ from app.domain.clips.text_clip import TextClip
 from app.domain.clips.video_clip import VideoClip
 from app.domain.project import Project
 from app.domain.track import Track
+from app.services.async_media_loader import AsyncFilmstripLoader
 from app.services.thumbnail_service import ThumbnailService
 from app.services.waveform_service import WaveformService
 from app.ui.timeline.clip_item import ClipItem
@@ -77,6 +78,13 @@ class TimelineScene(QGraphicsScene):
         self.track_layouts: list[TrackLayout] = []
         self._header_button_specs: list[_HeaderButtonSpec] = []
         self._decoration_items: list = []
+        # Filmstrip pixmaps loaded by the async worker, keyed by a stable
+        # (media_id + source range + frame_count) tuple. Survives ``self.clear()``
+        # so re-renders (zoom, selection change, …) don't re-spawn ffmpeg.
+        self._filmstrip_pixmap_cache: dict[str, list[QPixmap]] = {}
+        self._clip_items_by_id: dict[str, ClipItem] = {}
+        self._filmstrip_loader = AsyncFilmstripLoader(thumbnail_service, parent=self)
+        self._filmstrip_loader.filmstrip_ready.connect(self._on_filmstrip_ready)
         self.setBackgroundBrush(QBrush(QColor("#1a1a1a")))
         self.render_timeline()
 
@@ -143,6 +151,11 @@ class TimelineScene(QGraphicsScene):
         self.track_layouts = []
         self._header_button_specs = []
         self._decoration_items = []
+        # ``self.clear()`` deletes the previous ClipItems, so async filmstrip
+        # callbacks must not target stale instances. The pixmap cache itself
+        # survives intentionally so re-rendered ClipItems get their thumbnails
+        # back instantly without re-spawning ffmpeg.
+        self._clip_items_by_id = {}
 
         tracks = self._project.timeline.tracks if self._project is not None else []
         total_duration = 12.0
@@ -313,7 +326,10 @@ class TimelineScene(QGraphicsScene):
     def _draw_track_clips(self, track: Track, layout: TrackLayout) -> None:
         clip_y = layout.y + 5.0
         clip_height = max(12.0, layout.height - 10.0)
-        filmstrip_max_tiles = 256
+        # Cap tile count well below the old 256 limit: even at max zoom the
+        # filmstrip is tiled to fill the clip width, so 64 source frames is
+        # enough visually and bounds the worker subprocess fan-out.
+        filmstrip_max_tiles = 64
         clip_items_by_id: dict[str, ClipItem] = {}
 
         for clip in track.sorted_clips():
@@ -323,32 +339,25 @@ class TimelineScene(QGraphicsScene):
 
             thumbnails: list[QPixmap] = []
             if self._project is not None and isinstance(clip, VideoClip):
-                aspect_ratio_hint = 16.0 / 9.0
-                probe_bytes = self._thumbnail_service.get_thumbnail_bytes(
-                    project=self._project,
-                    clip=clip,
-                    project_path=self._project_path,
-                )
-                if probe_bytes:
-                    probe_pixmap = QPixmap()
-                    if probe_pixmap.loadFromData(probe_bytes) and probe_pixmap.height() > 0:
-                        aspect_ratio_hint = max(0.25, probe_pixmap.width() / probe_pixmap.height())
-
+                aspect_ratio_hint = self._video_clip_aspect_ratio(clip)
                 estimated_tile_width = max(8.0, clip_height * aspect_ratio_hint)
                 tile_count = max(
                     1,
                     min(filmstrip_max_tiles, int(math.ceil(clip_width / estimated_tile_width))),
                 )
-                frame_payloads = self._thumbnail_service.get_filmstrip_bytes(
-                    project=self._project,
-                    clip=clip,
-                    project_path=self._project_path,
-                    frame_count=tile_count,
-                )
-                for frame_payload in frame_payloads:
-                    pixmap = QPixmap()
-                    if pixmap.loadFromData(frame_payload):
-                        thumbnails.append(pixmap)
+                cache_key = self._filmstrip_cache_key(clip, tile_count)
+                cached = self._filmstrip_pixmap_cache.get(cache_key)
+                if cached is not None:
+                    thumbnails = list(cached)
+                else:
+                    self._filmstrip_loader.request(
+                        cache_key=cache_key,
+                        clip_id=clip.clip_id,
+                        project=self._project,
+                        clip=clip,
+                        project_path=self._project_path,
+                        frame_count=tile_count,
+                    )
             elif self._project is not None and isinstance(clip, ImageClip):
                 thumbnail_bytes = self._thumbnail_service.get_thumbnail_bytes(
                     project=self._project,
@@ -378,6 +387,7 @@ class TimelineScene(QGraphicsScene):
             )
             self.addItem(clip_item)
             clip_items_by_id[clip.clip_id] = clip_item
+            self._clip_items_by_id[clip.clip_id] = clip_item
 
         for transition in track.transitions:
             from_item = clip_items_by_id.get(transition.from_clip_id)
@@ -399,6 +409,43 @@ class TimelineScene(QGraphicsScene):
             transition_item.setZValue(15)
             transition_item.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
             self.addItem(transition_item)
+
+    def _video_clip_aspect_ratio(self, clip: VideoClip) -> float:
+        """Aspect-ratio hint without spawning a synchronous ffmpeg probe.
+
+        Falls back to 16:9 if ffprobe didn't fill in the dimensions during
+        media import.
+        """
+
+        if self._project is None:
+            return 16.0 / 9.0
+        for media_asset in self._project.media_items:
+            if media_asset.media_id != clip.media_id:
+                continue
+            if media_asset.width and media_asset.height and media_asset.height > 0:
+                return max(0.25, media_asset.width / media_asset.height)
+            break
+        return 16.0 / 9.0
+
+    @staticmethod
+    def _filmstrip_cache_key(clip: VideoClip, frame_count: int) -> str:
+        source_end = clip.source_end if clip.source_end is not None else -1.0
+        return f"{clip.media_id}|{clip.source_start:.4f}|{source_end:.4f}|{frame_count}"
+
+    def _on_filmstrip_ready(self, cache_key: str, clip_id: str, frames: list) -> None:
+        pixmaps: list[QPixmap] = []
+        for payload in frames:
+            if not isinstance(payload, (bytes, bytearray)) or not payload:
+                continue
+            pixmap = QPixmap()
+            if pixmap.loadFromData(bytes(payload)):
+                pixmaps.append(pixmap)
+        if not pixmaps:
+            return
+        self._filmstrip_pixmap_cache[cache_key] = pixmaps
+        clip_item = self._clip_items_by_id.get(clip_id)
+        if clip_item is not None:
+            clip_item.set_thumbnails(pixmaps)
 
     def _refresh_clip_selection_state(self) -> None:
         for item in self.items():

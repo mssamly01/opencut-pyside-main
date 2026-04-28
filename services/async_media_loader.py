@@ -16,7 +16,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from app.domain.clips.video_clip import VideoClip
 from app.domain.media_asset import MediaAsset
+from app.domain.project import Project
 from app.services.media_service import MediaService
 from app.services.thumbnail_service import ThumbnailService
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
@@ -151,3 +153,102 @@ class AsyncMediaThumbnailLoader(QObject):
     def _on_completed(self, media_id: str, payload: object) -> None:
         self._pending.discard(media_id)
         self.thumbnail_ready.emit(media_id, payload)
+
+
+@dataclass(slots=True)
+class _FilmstripRequest:
+    cache_key: str
+    clip_id: str
+    project: Project
+    clip: VideoClip
+    project_path: str | None
+    frame_count: int
+
+
+class _FilmstripSignals(QObject):
+    completed = Signal(str, str, list)  # cache_key, clip_id, list[bytes]
+
+
+class _FilmstripWorker(QRunnable):
+    def __init__(
+        self,
+        request: _FilmstripRequest,
+        thumbnail_service: ThumbnailService,
+        signals: _FilmstripSignals,
+    ) -> None:
+        super().__init__()
+        self.setAutoDelete(True)
+        self._request = request
+        self._service = thumbnail_service
+        self._signals = signals
+
+    def run(self) -> None:
+        try:
+            frames = self._service.get_filmstrip_bytes(
+                project=self._request.project,
+                clip=self._request.clip,
+                project_path=self._request.project_path,
+                frame_count=self._request.frame_count,
+            )
+        except Exception:  # pragma: no cover - defensive guard for worker thread
+            frames = []
+        self._signals.completed.emit(self._request.cache_key, self._request.clip_id, frames)
+
+
+class AsyncFilmstripLoader(QObject):
+    """Run ``ThumbnailService.get_filmstrip_bytes`` off the UI thread.
+
+    Drag-to-timeline used to stall for several seconds because the scene
+    rendered each new ``VideoClip`` by calling ``get_filmstrip_bytes`` on the
+    UI thread, which forks 1–256 ``ffmpeg`` subprocesses sequentially. This
+    loader pushes that work to a worker pool and emits the bytes back via a
+    signal, keyed by both ``cache_key`` (so the scene can cache pixmaps) and
+    ``clip_id`` (so the scene can find the live ``ClipItem``).
+    """
+
+    filmstrip_ready = Signal(str, str, list)  # cache_key, clip_id, list[bytes]
+
+    def __init__(
+        self,
+        thumbnail_service: ThumbnailService | None = None,
+        thread_pool: QThreadPool | None = None,
+        parent: QObject | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._service = thumbnail_service or ThumbnailService()
+        self._pool = thread_pool or QThreadPool(self)
+        self._signals = _FilmstripSignals()
+        self._signals.completed.connect(self._on_completed)
+        self._pending: set[str] = set()
+
+    def request(
+        self,
+        cache_key: str,
+        clip_id: str,
+        project: Project,
+        clip: VideoClip,
+        project_path: str | None,
+        frame_count: int,
+    ) -> None:
+        """Schedule a filmstrip load. Duplicate ``cache_key`` requests are ignored."""
+
+        if cache_key in self._pending:
+            return
+        self._pending.add(cache_key)
+        worker = _FilmstripWorker(
+            _FilmstripRequest(
+                cache_key=cache_key,
+                clip_id=clip_id,
+                project=project,
+                clip=clip,
+                project_path=project_path,
+                frame_count=frame_count,
+            ),
+            self._service,
+            self._signals,
+        )
+        self._pool.start(worker)
+
+    def _on_completed(self, cache_key: str, clip_id: str, frames: list) -> None:
+        self._pending.discard(cache_key)
+        self.filmstrip_ready.emit(cache_key, clip_id, frames)
