@@ -118,6 +118,7 @@ def test_thumbnail_service_memory_cache_is_thread_safe(tmp_path) -> None:
     """
 
     import threading
+
     from app.services.thumbnail_service import ThumbnailService
 
     service = ThumbnailService(cache_root=tmp_path, max_memory_entries=8)
