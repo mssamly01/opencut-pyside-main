@@ -136,39 +136,50 @@ def test_async_filmstrip_loader_dedupes_same_cache_key() -> None:
 
 
 def test_timeline_scene_render_does_not_block_on_filmstrip() -> None:
-    """Rendering a video clip must return quickly even if filmstrip is slow.
+    """Rendering a video clip must NOT call ffmpeg synchronously on the UI thread.
 
     The old code blocked ``__init__``/``render_timeline`` while ffmpeg ran on
-    the UI thread. With the async loader, render returns immediately and the
-    ClipItem starts with empty thumbnails until the worker emits.
+    the UI thread. With the async loader, render returns immediately, the
+    ClipItem starts with empty thumbnails, and ``get_filmstrip_bytes`` is only
+    called once the worker thread is unblocked.
+
+    We use a ``threading.Event`` to gate the worker so the assertion does not
+    depend on wall-clock timing (which is flaky on slow CI runners like
+    macOS-arm64).
     """
 
-    import time
+    import threading
 
     create_application(["pytest"])
     project, _clip = _make_project_with_video_clip()
 
-    class _SlowService(_StubThumbnailService):
+    class _GatedService(_StubThumbnailService):
+        def __init__(self, frames: list[bytes]) -> None:
+            super().__init__(frames=frames)
+            self.gate = threading.Event()
+            self.entered = threading.Event()
+
         def get_filmstrip_bytes(self, *args, **kwargs):  # type: ignore[override]
-            time.sleep(0.5)  # would freeze UI in the old sync path
+            self.entered.set()
+            self.gate.wait(timeout=5.0)
             return super().get_filmstrip_bytes(*args, **kwargs)
 
-    service = _SlowService(frames=[b"\x89PNG"] * 4)
+    service = _GatedService(frames=[b"\x89PNG"] * 4)
 
-    start = time.perf_counter()
     scene = TimelineScene(
         project=project,
         project_path=None,
         thumbnail_service=service,
         waveform_service=WaveformService(),
     )
-    elapsed_ms = (time.perf_counter() - start) * 1000.0
 
-    # Render must not wait for the slow service. Generous bound to keep the
-    # test stable on slow CI machines while still rejecting any regression
-    # back to the synchronous 500 ms+ stall.
-    assert elapsed_ms < 200.0, f"timeline render took {elapsed_ms:.1f} ms"
-
+    # Render returned while the worker is still blocked inside get_filmstrip_bytes.
+    # If the synchronous path ever returns, this would block forever or run on the
+    # main thread (failing the assertion below).
     clip_item = scene._clip_items_by_id.get("c1")  # noqa: SLF001
     assert clip_item is not None
     assert clip_item._thumbnail_sources == []  # noqa: SLF001
+
+    # Let the worker finish so the test doesn't leak threads.
+    service.gate.set()
+    _process_until(lambda: not scene._filmstrip_loader._pending)  # noqa: SLF001
