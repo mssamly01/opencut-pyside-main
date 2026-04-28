@@ -16,8 +16,8 @@ RAIL_CATEGORIES: list[tuple[str, str, str]] = [
     ("transitions", "Chuyển tiếp", "rail-transitions"),
 ]
 
-_BUTTON_WIDTH = 80
-_BUTTON_HEIGHT = 44
+_BUTTON_HEIGHT = 38
+_BUTTON_SPACING = 0
 _ICON_DEFAULT_COLOR = "#d6d9df"
 _ICON_ACTIVE_COLOR = "#16d3e2"
 
@@ -38,7 +38,8 @@ class LeftRail(QWidget):
             " background: transparent;"
             " color: #d6d9df;"
             " border-radius: 6px;"
-            " padding: 0px;"
+            " padding: 0px 5px;"
+            " font-size: 10px;"
             " spacing: 0px;"
             " margin: 0px;"
             " }"
@@ -55,13 +56,14 @@ class LeftRail(QWidget):
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 2, 4, 2)
-        layout.setSpacing(0)
+        layout.setSpacing(_BUTTON_SPACING)
 
         self._group = QButtonGroup(self)
         self._group.setExclusive(True)
         self._buttons: dict[str, QToolButton] = {}
         self._icon_names: dict[str, str] = {}
 
+        total_width = 8 # Initial padding (4 left + 4 right)
         for key, label, icon_name in RAIL_CATEGORIES:
             translated_label = QCoreApplication.translate("LeftRail", label)
             button = self._build_button(key, translated_label, icon_name)
@@ -69,9 +71,13 @@ class LeftRail(QWidget):
             self._group.addButton(button)
             self._buttons[key] = button
             self._icon_names[key] = icon_name
-
-        rail_content_width = 4 + 4 + (len(RAIL_CATEGORIES) * _BUTTON_WIDTH)
-        self.setMinimumWidth(rail_content_width)
+            
+            # Estimate width: text width + padding
+            # Using sizeHint() before showing might be inaccurate, but we can try
+            # or use a safe estimate.
+            total_width += button.sizeHint().width()
+        
+        self.setFixedWidth(total_width)
 
         first_key = RAIL_CATEGORIES[0][0]
         self._buttons[first_key].setChecked(True)
@@ -87,17 +93,15 @@ class LeftRail(QWidget):
 
     def _build_button(self, key: str, label: str, icon_name: str) -> QToolButton:
         button = QToolButton(self)
-        button_font = button.font()
-        button_font.setPixelSize(8)
-        button.setFont(button_font)
+        button.setObjectName("railButton")
         button.setText(label)
         button.setIcon(build_icon(icon_name, color=_ICON_DEFAULT_COLOR))
-        button.setIconSize(QSize(20, 20))
+        button.setIconSize(QSize(18, 18))
         button.setCheckable(True)
         button.setAutoRaise(True)
         button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
         button.setToolTip(label)
-        button.setFixedSize(_BUTTON_WIDTH, _BUTTON_HEIGHT)
+        button.setFixedHeight(_BUTTON_HEIGHT)
         button.toggled.connect(lambda checked, k=key: self._on_button_toggled(k, checked))
         return button
 

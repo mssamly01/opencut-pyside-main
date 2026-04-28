@@ -216,8 +216,12 @@ DetailsInspector QWidget {
     border: none;
 }
 QWidget#workspace_timeline_region {
-    background-color: #22242a;
+    background-color: #262626;
     border: none;
+}
+QWidget#timeline_toolbar {
+    background-color: #262626;
+    border-bottom: 1px solid #1a1a1a;
 }
 QWidget#workspace_region_header {
     background-color: #303030;

@@ -76,7 +76,7 @@ class TimelineScene(QGraphicsScene):
         self._ruler_label_specs: list[tuple[float, str]] = []
         self.track_layouts: list[TrackLayout] = []
         self._header_button_specs: list[_HeaderButtonSpec] = []
-        self.setBackgroundBrush(QBrush(QColor("#1a1d23")))
+        self.setBackgroundBrush(QBrush(QColor("#1a1a1a")))
         self.render_timeline()
 
     def set_project(
@@ -218,13 +218,13 @@ class TimelineScene(QGraphicsScene):
 
     def _draw_ruler(self, duration_seconds: float) -> None:
         ruler_rect = QRectF(0.0, 0.0, self.sceneRect().width(), self.ruler_height)
-        border_pen = QPen(QColor("#414c58"), 1)
+        border_pen = QPen(QColor("#333333"), 1)
         border_pen.setCosmetic(True)
 
         ruler_item = self.addRect(
             ruler_rect,
             border_pen,
-            QBrush(QColor("#242933")),
+            QBrush(QColor("#303030")),
         )
         ruler_item.setZValue(-10)
         ruler_item.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
@@ -457,8 +457,8 @@ class TimelineScene(QGraphicsScene):
         sticky_left = rect.left()
         scene_bottom = self.sceneRect().height()
         header_bg_rect = QRectF(sticky_left, 0.0, self.left_gutter, scene_bottom)
-        painter.fillRect(header_bg_rect, QColor("#2d3542"))
-        painter.setPen(QPen(QColor("#414c58"), 1))
+        painter.fillRect(header_bg_rect, QColor("#303030"))
+        painter.setPen(QPen(QColor("#1a1a1a"), 1))
         separator_x = sticky_left + self.left_gutter
         painter.drawLine(QPointF(separator_x, 0.0), QPointF(separator_x, scene_bottom))
 
@@ -563,14 +563,14 @@ class TimelineScene(QGraphicsScene):
 
         normalized_type = track.track_type.lower()
         if track.is_main:
-            return QColor("#1c2736"), QColor("#455a76")
+            return QColor("#2a2f3a"), QColor("#455a76")
         if normalized_type == "text":
-            return QColor("#32281d"), QColor("#6a5638")
+            return QColor("#3a3126"), QColor("#6a5638")
         if normalized_type in {"audio", "mixed"}:
-            return QColor("#1f2d28"), QColor("#47695b")
+            return QColor("#243530"), QColor("#47695b")
         if normalized_type == "overlay":
-            return QColor("#2a2537"), QColor("#615884")
-        return QColor("#1f2430"), QColor("#414c58")
+            return QColor("#322b42"), QColor("#615884")
+        return QColor("#2d333f"), QColor("#414c58")
 
     @staticmethod
     def _track_title_color(track: Track) -> QColor:
