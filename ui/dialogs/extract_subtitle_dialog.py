@@ -394,3 +394,30 @@ class ExtractSubtitleDialog(QDialog):
         self._buttons.button(QDialogButtonBox.StandardButton.Cancel).setEnabled(True)
         self._status_label.setText(self.tr("Lỗi: {msg}").format(msg=error_message))
         QMessageBox.critical(self, self.tr("Trích xuất thất bại"), error_message)
+
+    def _is_extraction_running(self) -> bool:
+        return self._thread is not None and self._thread.isRunning()
+
+    def reject(self) -> None:
+        # Chặn đóng dialog (qua nút X hoặc Esc) trong khi engine còn chạy.
+        # Nếu cho phép, QThread sẽ bị deleted khi parent destroy → crash, và
+        # mỗi lần reopen sẽ tích thêm 1 OCR thread chạy ngầm.
+        if self._is_extraction_running():
+            QMessageBox.information(
+                self,
+                self.tr("Đang trích xuất"),
+                self.tr("Quá trình trích xuất đang chạy. Vui lòng đợi đến khi hoàn tất."),
+            )
+            return
+        super().reject()
+
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        if self._is_extraction_running():
+            QMessageBox.information(
+                self,
+                self.tr("Đang trích xuất"),
+                self.tr("Quá trình trích xuất đang chạy. Vui lòng đợi đến khi hoàn tất."),
+            )
+            event.ignore()
+            return
+        super().closeEvent(event)

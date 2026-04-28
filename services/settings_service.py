@@ -97,6 +97,7 @@ class SettingsService:
         self._settings["recent_project_paths"] = self.recent_project_paths()[: self._max_recent_projects]
         self._settings["last_opened_project_path"] = self.last_opened_project_path()
         self._settings["last_export_directory"] = self.last_export_directory()
+        self._settings["subtitle_extractor_model_dir"] = self.subtitle_extractor_model_dir()
 
     def _save_to_disk(self) -> None:
         self._settings_path.parent.mkdir(parents=True, exist_ok=True)

@@ -43,6 +43,20 @@ def test_subtitle_extractor_model_dir_round_trip(tmp_path: Path) -> None:
     assert reloaded.subtitle_extractor_model_dir() is None
 
 
+def test_subtitle_extractor_model_dir_sanitizes_invalid_value_on_load(tmp_path: Path) -> None:
+    settings_path = tmp_path / "settings.json"
+    settings_path.write_text(
+        json.dumps({"subtitle_extractor_model_dir": 42}),
+        encoding="utf-8",
+    )
+
+    service = SettingsService(settings_path=str(settings_path))
+
+    # Invalid value must be normalised to None and persisted as None.
+    assert service.subtitle_extractor_model_dir() is None
+    assert service._settings["subtitle_extractor_model_dir"] is None  # noqa: SLF001
+
+
 def test_record_export_output_stores_directory(tmp_path: Path) -> None:
     settings_path = tmp_path / "settings.json"
     service = SettingsService(settings_path=str(settings_path))
