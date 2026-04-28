@@ -383,12 +383,23 @@ class ExtractSubtitleDialog(QDialog):
         self._thread.start()
 
     def _on_finished(self, srt_path: str) -> None:
+        # Phải clear ref trước accept(): accept() có thể spin event loop
+        # và `thread.finished -> deleteLater` chạy sẽ làm self._thread
+        # trỏ vào C++ object đã bị xóa.
+        self._thread = None
+        self._worker = None
         self.result_srt_path = srt_path
         self._progress.setVisible(False)
         self._status_label.setText(self.tr("Hoàn tất: {path}").format(path=srt_path))
         self.accept()
 
     def _on_failed(self, error_message: str) -> None:
+        # Clear ref trước QMessageBox: critical() spin nested event loop,
+        # `worker.failed -> thread.quit -> finished -> deleteLater` chạy
+        # trong đó. Nếu user dismiss rồi bấm Cancel, _is_extraction_running
+        # sẽ gọi isRunning() trên C++ object đã bị xóa -> RuntimeError.
+        self._thread = None
+        self._worker = None
         self._progress.setVisible(False)
         self._buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(True)
         self._buttons.button(QDialogButtonBox.StandardButton.Cancel).setEnabled(True)

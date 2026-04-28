@@ -50,7 +50,7 @@ def test_is_available_reports_missing_dep(monkeypatch: pytest.MonkeyPatch) -> No
     real_import = importlib.import_module
 
     def fake_import(name: str, *args, **kwargs):  # type: ignore[no-untyped-def]
-        if name in {"cv2", "paddle", "paddleocr", "pysrt"}:
+        if name in {"cv2", "paddle", "paddleocr", "pysrt", "fsplit", "wordsegment"}:
             raise ImportError(name)
         return real_import(name, *args, **kwargs)
 
@@ -67,7 +67,7 @@ def test_is_available_reports_missing_model_dir(monkeypatch: pytest.MonkeyPatch)
     real_import = importlib.import_module
 
     def fake_import(name: str, *args, **kwargs):  # type: ignore[no-untyped-def]
-        if name in {"cv2", "paddle", "paddleocr", "pysrt"}:
+        if name in {"cv2", "paddle", "paddleocr", "pysrt", "fsplit", "wordsegment"}:
             return type("FakeModule", (), {})()
         return real_import(name, *args, **kwargs)
 
@@ -85,7 +85,7 @@ def test_is_available_reports_missing_v4_subdir(
     real_import = importlib.import_module
 
     def fake_import(name: str, *args, **kwargs):  # type: ignore[no-untyped-def]
-        if name in {"cv2", "paddle", "paddleocr", "pysrt"}:
+        if name in {"cv2", "paddle", "paddleocr", "pysrt", "fsplit", "wordsegment"}:
             return type("FakeModule", (), {})()
         return real_import(name, *args, **kwargs)
 
@@ -103,7 +103,7 @@ def test_is_available_ok_when_all_present(
     real_import = importlib.import_module
 
     def fake_import(name: str, *args, **kwargs):  # type: ignore[no-untyped-def]
-        if name in {"cv2", "paddle", "paddleocr", "pysrt"}:
+        if name in {"cv2", "paddle", "paddleocr", "pysrt", "fsplit", "wordsegment"}:
             return type("FakeModule", (), {})()
         return real_import(name, *args, **kwargs)
 
@@ -151,7 +151,7 @@ def test_extract_subtitles_validates_language(
     real_import = importlib.import_module
 
     def fake_import(name: str, *args, **kwargs):  # type: ignore[no-untyped-def]
-        if name in {"cv2", "paddle", "paddleocr", "pysrt"}:
+        if name in {"cv2", "paddle", "paddleocr", "pysrt", "fsplit", "wordsegment"}:
             return type("FakeModule", (), {})()
         return real_import(name, *args, **kwargs)
 
@@ -169,6 +169,25 @@ def test_extract_subtitles_validates_language(
             subtitle_area=(0, 100, 0, 100),
             language="klingon",
         )
+
+
+def test_is_available_reports_missing_fsplit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`fsplit` is imported unconditionally by vendored config.py top-level."""
+
+    real_import = importlib.import_module
+
+    def fake_import(name: str, *args, **kwargs):  # type: ignore[no-untyped-def]
+        if name == "fsplit":
+            raise ImportError("fsplit")
+        if name in {"cv2", "paddle", "paddleocr", "pysrt", "wordsegment"}:
+            return type("FakeModule", (), {})()
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(svc.importlib, "import_module", fake_import)
+
+    result = svc.is_available()
+    assert result.ok is False
+    assert "fsplit" in result.hint.lower()
 
 
 def test_write_settings_ini_renders_keys(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

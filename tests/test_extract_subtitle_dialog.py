@@ -81,6 +81,36 @@ def test_close_event_ignored_while_thread_running(qapp, tmp_path, monkeypatch):
     assert event.accepted is False
 
 
+def test_on_failed_clears_thread_ref_before_message_box(qapp, tmp_path, monkeypatch):
+    """Reproduces stale `self._thread` after error: critical() spins event loop,
+    finished -> deleteLater fires, then _is_extraction_running would touch a
+    deleted C++ object. Fix: clear refs *before* QMessageBox.critical."""
+
+    settings = SettingsService(settings_path=str(tmp_path / "s.json"))
+    dialog = ExtractSubtitleDialog(settings_service=settings)
+
+    sentinel_thread = _FakeRunningThread()
+    sentinel_worker = object()
+    dialog._thread = sentinel_thread  # type: ignore[assignment]
+    dialog._worker = sentinel_worker  # type: ignore[assignment]
+
+    captured: dict[str, object] = {}
+
+    def fake_critical(parent, title, message, *_args, **_kwargs):
+        captured["thread_at_messagebox"] = dialog._thread
+        captured["worker_at_messagebox"] = dialog._worker
+        return QMessageBox.StandardButton.Ok
+
+    monkeypatch.setattr(QMessageBox, "critical", staticmethod(fake_critical))
+
+    dialog._on_failed("boom")
+
+    assert captured["thread_at_messagebox"] is None
+    assert captured["worker_at_messagebox"] is None
+    assert dialog._thread is None
+    assert dialog._worker is None
+
+
 def test_reject_passes_through_when_idle(qapp, tmp_path, monkeypatch):
     settings = SettingsService(settings_path=str(tmp_path / "s.json"))
     dialog = ExtractSubtitleDialog(settings_service=settings)

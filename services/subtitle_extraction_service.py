@@ -60,8 +60,9 @@ def _missing_dep(name: str) -> Availability:
         ok=False,
         hint=(
             f"Thiếu dependency '{name}'. Hãy cài đầy đủ extras:\n"
-            "  pip install paddlepaddle-gpu==3.3.1 paddleocr opencv-python "
-            "Levenshtein lmdb pyclipper shapely scikit-image pysrt"
+            "  pip install \".[subtitle-extraction]\"\n"
+            "(cần: paddlepaddle-gpu, paddleocr, opencv-python, pysrt, fsplit, "
+            "wordsegment, Levenshtein, lmdb, pyclipper, shapely, scikit-image)"
         ),
     )
 
@@ -69,7 +70,11 @@ def _missing_dep(name: str) -> Availability:
 def is_available() -> Availability:
     """Check whether all engine deps + a usable model directory exist."""
 
-    for module_name in ("cv2", "paddle", "paddleocr", "pysrt"):
+    # Vendored backend imports `fsplit` và `wordsegment` ở top-level (config.py,
+    # tools/reformat.py) nên phải probe luuôn -- thiếu một trong hai sẽ làm
+    # _import_extractor() raise ImportError ngay khi reload, không hệ liên quan
+    # đến paddle.
+    for module_name in ("cv2", "paddle", "paddleocr", "pysrt", "fsplit", "wordsegment"):
         try:
             importlib.import_module(module_name)
         except ImportError:

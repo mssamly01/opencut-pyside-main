@@ -29,6 +29,9 @@ subtitle-extraction = [
     "pyclipper",
     "shapely",
     "scikit-image",
+    # Imported unconditionally by vendor/vse_module/backend/{config,tools/reformat}.py.
+    "filesplit",
+    "wordsegment",
 ]
 
 [tool.ruff]
