@@ -16,10 +16,26 @@ dev = [
     "pytest>=7",
     "ruff>=0.4",
 ]
+# Cài cho tính năng "Trích xuất phụ đề từ video" trong panel Phụ đề.
+# Yêu cầu Windows/Linux + NVIDIA GPU + CUDA/cuDNN tương thích với
+# paddlepaddle-gpu 3.3.1. Người dùng cần copy thêm thư mục models V4
+# (xem dialog "Trích xuất phụ đề" → nút "Chọn thư mục models...").
+subtitle-extraction = [
+    "paddlepaddle-gpu==3.3.1",
+    "paddleocr",
+    "opencv-python",
+    "pysrt",
+    "Levenshtein",
+    "pyclipper",
+    "shapely",
+    "scikit-image",
+]
 
 [tool.ruff]
 line-length = 120
 target-version = "py310"
+# Vendored upstream code is intentionally kept verbatim (see vendor/__init__.py).
+extend-exclude = ["vendor"]
 
 [tool.ruff.lint]
 select = [

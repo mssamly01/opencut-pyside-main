@@ -17,6 +17,7 @@ class SettingsService:
             "last_opened_project_path": None,
             "last_export_directory": None,
             "recent_project_paths": [],
+            "subtitle_extractor_model_dir": None,
         }
         self._load_from_disk()
 
@@ -36,6 +37,15 @@ class SettingsService:
         if not isinstance(value, list):
             return []
         return [path for path in value if isinstance(path, str) and path.strip()]
+
+    def subtitle_extractor_model_dir(self) -> str | None:
+        value = self._settings.get("subtitle_extractor_model_dir")
+        return value if isinstance(value, str) and value.strip() else None
+
+    def set_subtitle_extractor_model_dir(self, model_dir: str | None) -> None:
+        normalized = self._normalize_path(model_dir) if model_dir else None
+        self._settings["subtitle_extractor_model_dir"] = normalized
+        self._save_to_disk()
 
     def record_project_opened(self, project_path: str) -> None:
         normalized_path = self._normalize_path(project_path)
@@ -75,7 +85,12 @@ class SettingsService:
         if not isinstance(payload, dict):
             return
 
-        for key in ("last_opened_project_path", "last_export_directory", "recent_project_paths"):
+        for key in (
+            "last_opened_project_path",
+            "last_export_directory",
+            "recent_project_paths",
+            "subtitle_extractor_model_dir",
+        ):
             if key in payload:
                 self._settings[key] = payload[key]
 

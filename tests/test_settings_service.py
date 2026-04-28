@@ -24,6 +24,25 @@ def test_record_project_opened_updates_last_and_recent(tmp_path: Path) -> None:
     ]
 
 
+def test_subtitle_extractor_model_dir_round_trip(tmp_path: Path) -> None:
+    settings_path = tmp_path / "settings.json"
+    service = SettingsService(settings_path=str(settings_path))
+
+    assert service.subtitle_extractor_model_dir() is None
+
+    model_dir = tmp_path / "ocr-models"
+    model_dir.mkdir()
+    service.set_subtitle_extractor_model_dir(str(model_dir))
+    assert service.subtitle_extractor_model_dir() == str(model_dir.resolve())
+
+    # Reload from disk to verify persistence.
+    reloaded = SettingsService(settings_path=str(settings_path))
+    assert reloaded.subtitle_extractor_model_dir() == str(model_dir.resolve())
+
+    reloaded.set_subtitle_extractor_model_dir(None)
+    assert reloaded.subtitle_extractor_model_dir() is None
+
+
 def test_record_export_output_stores_directory(tmp_path: Path) -> None:
     settings_path = tmp_path / "settings.json"
     service = SettingsService(settings_path=str(settings_path))
