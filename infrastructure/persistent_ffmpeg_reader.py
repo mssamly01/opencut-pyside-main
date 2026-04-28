@@ -83,6 +83,7 @@ class _PersistentFrameReader:
         width: int,
         height: int,
         extra_video_filters: list[str] | None,
+        hwaccel_args: list[str] | None = None,
     ) -> None:
         self._ffmpeg_executable = ffmpeg_executable
         self._media_path = media_path
@@ -90,6 +91,7 @@ class _PersistentFrameReader:
         self._width = int(width)
         self._height = int(height)
         self._extra_filters = list(extra_video_filters or [])
+        self._hwaccel_args = list(hwaccel_args or [])
         self._frame_size = self._width * self._height * 4
         self._next_frame_index = max(0, int(start_frame_index))
         self._process: subprocess.Popen | None = None
@@ -108,6 +110,10 @@ class _PersistentFrameReader:
     def height(self) -> int:
         return self._height
 
+    @property
+    def used_hwaccel(self) -> bool:
+        return bool(self._hwaccel_args)
+
     def _spawn(self, start_frame_index: int) -> None:
         start_seconds = max(0.0, start_frame_index / self._fps)
         filter_chain = [f"fps={self._fps:.6f}", *self._extra_filters]
@@ -117,6 +123,10 @@ class _PersistentFrameReader:
             "-loglevel",
             "error",
             "-nostdin",
+        ]
+        if self._hwaccel_args:
+            command.extend(self._hwaccel_args)
+        command.extend([
             "-ss",
             f"{start_seconds:.6f}",
             "-i",
@@ -128,7 +138,7 @@ class _PersistentFrameReader:
             "-pix_fmt",
             "bgra",
             "pipe:1",
-        ]
+        ])
         try:
             self._process = subprocess.Popen(  # noqa: S603 - executable resolved by gateway
                 command,
@@ -211,6 +221,9 @@ class PersistentFFmpegFramePool:
         self._max_active = max(1, int(max_active))
         self._lock = threading.Lock()
         self._readers: OrderedDict[tuple, _PersistentFrameReader] = OrderedDict()
+        # Files for which hwaccel decoding has been observed to fail. Once a
+        # file lands here we always spawn the reader without -hwaccel.
+        self._sw_only_paths: set[str] = set()
 
     def is_available(self) -> bool:
         return self._gateway.is_available()
@@ -268,44 +281,107 @@ class PersistentFFmpegFramePool:
         token = filter_token if filter_token is not None else self._filter_token(extra_video_filters)
         key = self._key(resolved_path, fps, token, width, height)
         safe_start = max(0, int(start_frame_index))
-        results: list[tuple[int, bytes]] = []
 
         with self._lock:
-            reader = self._readers.get(key)
-            reuse = reader is not None and reader.is_alive() and reader.next_frame_index == safe_start
-            if not reuse and reader is not None:
-                reader.close()
-                self._readers.pop(key, None)
-                reader = None
-
-            if reader is None:
-                reader = _PersistentFrameReader(
+            results, fallback_to_sw = self._read_locked(
+                key=key,
+                ffmpeg_executable=ffmpeg_executable,
+                resolved_path=resolved_path,
+                fps=fps,
+                start_frame_index=safe_start,
+                frame_count=int(frame_count),
+                width=width,
+                height=height,
+                extra_video_filters=extra_video_filters,
+                allow_hwaccel=resolved_path not in self._sw_only_paths,
+            )
+            if fallback_to_sw:
+                self._sw_only_paths.add(resolved_path)
+                results, _ = self._read_locked(
+                    key=key,
                     ffmpeg_executable=ffmpeg_executable,
-                    media_path=resolved_path,
+                    resolved_path=resolved_path,
                     fps=fps,
                     start_frame_index=safe_start,
+                    frame_count=int(frame_count),
                     width=width,
                     height=height,
                     extra_video_filters=extra_video_filters,
+                    allow_hwaccel=False,
                 )
-                if not reader.is_alive():
-                    reader.close()
-                    return []
-                self._readers[key] = reader
-                self._evict_overflow_locked(except_key=key)
-            else:
-                self._readers.move_to_end(key)
-
-            for _ in range(int(frame_count)):
-                frame_index = reader.next_frame_index
-                payload = reader.read_next()
-                if payload is None:
-                    reader.close()
-                    self._readers.pop(key, None)
-                    break
-                results.append((frame_index, payload))
 
         return results
+
+    def _read_locked(
+        self,
+        *,
+        key: tuple,
+        ffmpeg_executable: str,
+        resolved_path: str,
+        fps: float,
+        start_frame_index: int,
+        frame_count: int,
+        width: int,
+        height: int,
+        extra_video_filters: list[str] | None,
+        allow_hwaccel: bool,
+    ) -> tuple[list[tuple[int, bytes]], bool]:
+        """Try to fill ``frame_count`` frames; report whether hwaccel must be retired.
+
+        Returns ``(results, fallback_to_sw)``. ``fallback_to_sw`` is True
+        only when this attempt used hwaccel AND the very first read
+        returned no payload (i.e. the codec is not supported by the
+        accelerator on this host). The caller is expected to retry with
+        ``allow_hwaccel=False`` in that case.
+        """
+
+        accel = self._gateway._resolved_hwaccel_args() if allow_hwaccel else []
+        results: list[tuple[int, bytes]] = []
+
+        reader = self._readers.get(key)
+        reuse = reader is not None and reader.is_alive() and reader.next_frame_index == start_frame_index
+        if not reuse and reader is not None:
+            reader.close()
+            self._readers.pop(key, None)
+            reader = None
+
+        if reader is None:
+            reader = _PersistentFrameReader(
+                ffmpeg_executable=ffmpeg_executable,
+                media_path=resolved_path,
+                fps=fps,
+                start_frame_index=start_frame_index,
+                width=width,
+                height=height,
+                extra_video_filters=extra_video_filters,
+                hwaccel_args=accel,
+            )
+            if not reader.is_alive():
+                reader.close()
+                return [], bool(accel)
+            self._readers[key] = reader
+            self._evict_overflow_locked(except_key=key)
+        else:
+            self._readers.move_to_end(key)
+
+        first_attempt = reader.next_frame_index == start_frame_index and not reuse
+        for _ in range(frame_count):
+            frame_index = reader.next_frame_index
+            payload = reader.read_next()
+            if payload is None:
+                reader.close()
+                self._readers.pop(key, None)
+                # Treat "fresh hwaccel reader produced zero frames" as a
+                # decoder-unsupported signal. Reuse paths or partial reads
+                # do NOT fall back: those typically mean EOF or a transient
+                # process exit, not a codec mismatch.
+                if first_attempt and reader.used_hwaccel and not results:
+                    return [], True
+                break
+            results.append((frame_index, payload))
+            first_attempt = False
+
+        return results, False
 
     def _evict_overflow_locked(self, except_key: tuple | None) -> None:
         while len(self._readers) > self._max_active:

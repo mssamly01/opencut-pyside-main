@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from app.infrastructure.ffmpeg_hwaccel import hwaccel_args, probe_hwaccel
+
 logger = logging.getLogger(__name__)
 
 
@@ -20,10 +22,35 @@ def _bundled_ffmpeg_candidates(bin_dir: Path) -> list[Path]:
 
 
 class FFmpegGateway:
-    def __init__(self, ffmpeg_executable: str | None = None, timeout_seconds: float = 8.0) -> None:
+    def __init__(
+        self,
+        ffmpeg_executable: str | None = None,
+        timeout_seconds: float = 8.0,
+        *,
+        use_hwaccel: bool = True,
+    ) -> None:
         self._ffmpeg_executable = self._resolve_ffmpeg_executable(ffmpeg_executable)
         self._timeout_seconds = timeout_seconds
         self._is_available_cache: bool | None = None
+        self._use_hwaccel = use_hwaccel
+        self._hwaccel_resolved = False
+        self._hwaccel_name: str | None = None
+
+    def hwaccel_name(self) -> str | None:
+        """Return the chosen hwaccel name (``cuda``/``vaapi``/...) or ``None``."""
+
+        return self._resolved_hwaccel_name()
+
+    def _resolved_hwaccel_name(self) -> str | None:
+        if not self._use_hwaccel:
+            return None
+        if not self._hwaccel_resolved:
+            self._hwaccel_name = probe_hwaccel(self._ffmpeg_executable)
+            self._hwaccel_resolved = True
+        return self._hwaccel_name
+
+    def _resolved_hwaccel_args(self) -> list[str]:
+        return hwaccel_args(self._resolved_hwaccel_name())
 
     def is_available(self) -> bool:
         if self._is_available_cache is None:
@@ -51,18 +78,33 @@ class FFmpegGateway:
         safe_time = max(0.0, float(time_seconds))
         filters = list(extra_video_filters or [])
 
-        command = self._build_extract_frame_command(
-            source_path, safe_time, seek_before_input=True, extra_video_filters=filters
-        )
-        frame_bytes = self._run_ffmpeg(command)
-        if frame_bytes is not None:
-            return frame_bytes
+        def _attempt(accel: list[str]) -> bytes | None:
+            command = self._build_extract_frame_command(
+                source_path,
+                safe_time,
+                seek_before_input=True,
+                extra_video_filters=filters,
+                hwaccel_args=accel,
+            )
+            frame_bytes = self._run_ffmpeg(command)
+            if frame_bytes is not None:
+                return frame_bytes
+            fallback_command = self._build_extract_frame_command(
+                source_path,
+                safe_time,
+                seek_before_input=False,
+                extra_video_filters=filters,
+                hwaccel_args=accel,
+            )
+            return self._run_ffmpeg(fallback_command)
 
-        # Fallback seek order for files that decode better with post-input seeking.
-        fallback_command = self._build_extract_frame_command(
-            source_path, safe_time, seek_before_input=False, extra_video_filters=filters
-        )
-        return self._run_ffmpeg(fallback_command)
+        accel = self._resolved_hwaccel_args()
+        result = _attempt(accel)
+        if result is not None:
+            return result
+        if accel:
+            return _attempt([])
+        return None
 
     def extract_frame_sequence_png(
         self,
@@ -90,14 +132,26 @@ class FFmpegGateway:
         safe_fps = max(1.0, float(fps))
         safe_frame_count = max(1, int(frame_count))
 
+        accel = self._resolved_hwaccel_args()
         command = self._build_extract_frame_sequence_command(
             source_path=source_path,
             start_time_seconds=safe_time,
             fps=safe_fps,
             frame_count=safe_frame_count,
             extra_video_filters=list(extra_video_filters or []),
+            hwaccel_args=accel,
         )
         payload = self._run_ffmpeg(command)
+        if payload is None and accel:
+            sw_command = self._build_extract_frame_sequence_command(
+                source_path=source_path,
+                start_time_seconds=safe_time,
+                fps=safe_fps,
+                frame_count=safe_frame_count,
+                extra_video_filters=list(extra_video_filters or []),
+                hwaccel_args=[],
+            )
+            payload = self._run_ffmpeg(sw_command)
         if payload is None:
             return []
         return self._split_png_stream(payload)
@@ -140,8 +194,11 @@ class FFmpegGateway:
         time_seconds: float,
         seek_before_input: bool,
         extra_video_filters: list[str] | None = None,
+        hwaccel_args: list[str] | None = None,
     ) -> list[str]:
         command = [self._ffmpeg_executable, "-hide_banner", "-loglevel", "error", "-nostdin"]
+        if hwaccel_args:
+            command.extend(hwaccel_args)
         if seek_before_input:
             command.extend(["-ss", f"{time_seconds:.6f}"])
         command.extend(["-i", str(source_path)])
@@ -173,31 +230,39 @@ class FFmpegGateway:
         fps: float,
         frame_count: int,
         extra_video_filters: list[str] | None = None,
+        hwaccel_args: list[str] | None = None,
     ) -> list[str]:
         filter_chain = [f"fps={fps:.6f}"] + list(extra_video_filters or [])
-        return [
+        command = [
             self._ffmpeg_executable,
             "-hide_banner",
             "-loglevel",
             "error",
             "-nostdin",
-            "-ss",
-            f"{start_time_seconds:.6f}",
-            "-i",
-            str(source_path),
-            "-vf",
-            ",".join(filter_chain),
-            "-frames:v",
-            str(frame_count),
-            "-an",
-            "-sn",
-            "-dn",
-            "-f",
-            "image2pipe",
-            "-vcodec",
-            "png",
-            "pipe:1",
         ]
+        if hwaccel_args:
+            command.extend(hwaccel_args)
+        command.extend(
+            [
+                "-ss",
+                f"{start_time_seconds:.6f}",
+                "-i",
+                str(source_path),
+                "-vf",
+                ",".join(filter_chain),
+                "-frames:v",
+                str(frame_count),
+                "-an",
+                "-sn",
+                "-dn",
+                "-f",
+                "image2pipe",
+                "-vcodec",
+                "png",
+                "pipe:1",
+            ]
+        )
+        return command
 
     def _run_ffmpeg(self, command: list[str]) -> bytes | None:
         try:
