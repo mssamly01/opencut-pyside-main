@@ -230,6 +230,7 @@ class TimelineScene(QGraphicsScene):
         )
         ruler_item.setZValue(-10)
         ruler_item.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+        self._decoration_items.append(ruler_item)
 
         label_interval, tick_interval = self._get_ruler_intervals(self.pixels_per_second)
         current_tick = 0.0
@@ -244,6 +245,7 @@ class TimelineScene(QGraphicsScene):
             tick_height = 13 if is_label_tick else 8
             tick_item = self.addLine(x, self.ruler_height - tick_height, x, self.ruler_height, QPen(QColor("#7a8794"), 1))
             tick_item.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+            self._decoration_items.append(tick_item)
 
             if is_label_tick:
                 self._ruler_label_specs.append((x + 4, format_seconds_label(current_tick)))
