@@ -137,14 +137,6 @@ class CaptionsPanel(QWidget):
         functions_layout.setContentsMargins(8, 8, 8, 8)
         functions_layout.setSpacing(6)
 
-        self._extract_subtitle_button = QPushButton(
-            self.tr("Trích xuất phụ đề từ video"), self._functions_table
-        )
-        self._extract_subtitle_button.setObjectName("captions_function_action_button")
-        self._extract_subtitle_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._extract_subtitle_button.clicked.connect(self._on_extract_subtitle_clicked)
-        functions_layout.addWidget(self._extract_subtitle_button)
-
         self._filter_ocr_button = QPushButton(self.tr("Lọc lỗi OCR"), self._functions_table)
         self._filter_ocr_button.setObjectName("captions_function_action_button")
         self._filter_ocr_button.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -301,33 +293,6 @@ class CaptionsPanel(QWidget):
         if not self._ensure_subtitle_selected():
             return
         self._app_controller.request_subtitle_interjection_cleanup()
-
-    def _on_extract_subtitle_clicked(self) -> None:
-        # Lazy import to keep paddle/cv2 hard-deps out of the captions panel
-        # import path (the dialog itself imports the service which imports
-        # them lazily, but this defers even the dialog module load).
-        from app.ui.dialogs.extract_subtitle_dialog import ExtractSubtitleDialog
-
-        dialog = ExtractSubtitleDialog(
-            settings_service=self._app_controller.settings_service,
-            parent=self,
-        )
-        if dialog.exec() != ExtractSubtitleDialog.DialogCode.Accepted:
-            return
-        srt_path = dialog.result_srt_path
-        if not srt_path:
-            return
-        try:
-            imported = self._app_controller.import_subtitles_from_file(srt_path)
-        except (OSError, ValueError) as exc:
-            QMessageBox.critical(self, self.tr("Subtitle import failed"), str(exc))
-            return
-        if imported <= 0:
-            QMessageBox.information(
-                self,
-                self.tr("Trích xuất phụ đề"),
-                self.tr("Phụ đề được tạo nhưng không có dòng nào hợp lệ."),
-            )
 
     def _sync_selection_from_controller(self) -> None:
         selected = self._app_controller.selected_subtitle_segment()
