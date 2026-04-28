@@ -11,6 +11,7 @@ from app.domain.clips.video_clip import VideoClip
 from app.domain.media_asset import MediaAsset
 from app.domain.project import Project
 from app.infrastructure.ffmpeg_gateway import FFmpegGateway
+from app.infrastructure.persistent_ffmpeg_reader import PersistentFFmpegFramePool
 from app.infrastructure.video_decoder import VideoDecoder
 from app.services.export_service import ExportService
 from app.services.keyframe_evaluator import clip_has_keyframes
@@ -34,9 +35,19 @@ class PlaybackService:
         ffmpeg_gateway: FFmpegGateway | None = None,
         video_decoder: VideoDecoder | None = None,
         memory_guard: MemoryGuard | None = None,
+        frame_pool: PersistentFFmpegFramePool | None = None,
     ) -> None:
         self._ffmpeg_gateway = ffmpeg_gateway or FFmpegGateway()
-        self._video_decoder = video_decoder or VideoDecoder(ffmpeg_gateway=self._ffmpeg_gateway, max_cache_entries=420)
+        if video_decoder is None:
+            self._frame_pool = frame_pool or PersistentFFmpegFramePool(ffmpeg_gateway=self._ffmpeg_gateway)
+            self._video_decoder = VideoDecoder(
+                ffmpeg_gateway=self._ffmpeg_gateway,
+                max_cache_entries=420,
+                frame_pool=self._frame_pool,
+            )
+        else:
+            self._frame_pool = frame_pool
+            self._video_decoder = video_decoder
         self._memory_guard = memory_guard or MemoryGuard()
         self._image_bytes_cache: dict[str, bytes] = {}
 
@@ -91,6 +102,7 @@ class PlaybackService:
         # never match future cache lookups — wasted work that also evicts useful
         # entries from the LRU.  Decode just the requested frame instead.
         prefetch_enabled = not self._has_animated_color(active_clip)
+        frame_dimensions = self._frame_dimensions_for_asset(media_asset)
         cached_frame = self._video_decoder.get_frame(
             normalized_media_path, safe_fps, frame_index, extra_video_filters=extra_filters
         )
@@ -102,6 +114,7 @@ class PlaybackService:
                     frame_index=frame_index + 1,
                     media_asset=media_asset,
                     extra_video_filters=extra_filters,
+                    frame_dimensions=frame_dimensions,
                 )
             return PreviewFrameResult(frame_bytes=cached_frame, message=media_asset.name)
 
@@ -112,6 +125,7 @@ class PlaybackService:
                 frame_index=frame_index,
                 media_asset=media_asset,
                 extra_video_filters=extra_filters,
+                frame_dimensions=frame_dimensions,
             )
             cached_frame = self._video_decoder.get_frame(
                 normalized_media_path, safe_fps, frame_index, extra_video_filters=extra_filters
@@ -119,9 +133,12 @@ class PlaybackService:
             if cached_frame is not None:
                 return PreviewFrameResult(frame_bytes=cached_frame, message=media_asset.name)
 
-        quantized_source_time = self._time_from_frame_index(frame_index, safe_fps)
-        frame_bytes = self._ffmpeg_gateway.extract_frame_png(
-            normalized_media_path, quantized_source_time, extra_video_filters=extra_filters
+        frame_bytes = self._decode_single_frame(
+            media_path=normalized_media_path,
+            fps=safe_fps,
+            frame_index=frame_index,
+            frame_dimensions=frame_dimensions,
+            extra_video_filters=extra_filters,
         )
         if frame_bytes is None:
             return PreviewFrameResult(frame_bytes=None, message="Unable to decode video frame")
@@ -247,6 +264,7 @@ class PlaybackService:
         frame_index: int,
         media_asset: MediaAsset,
         extra_video_filters: list[str] | None = None,
+        frame_dimensions: tuple[int, int] | None = None,
     ) -> None:
         frame_count = self._prefetch_frame_count_for_fps(fps)
         window_start = max(0, frame_index)
@@ -261,7 +279,46 @@ class PlaybackService:
             frame_count=frame_count,
             media_duration_seconds=media_asset.duration_seconds,
             extra_video_filters=extra_video_filters,
+            frame_dimensions=frame_dimensions,
         )
+
+    def _decode_single_frame(
+        self,
+        media_path: str,
+        fps: float,
+        frame_index: int,
+        frame_dimensions: tuple[int, int] | None,
+        extra_video_filters: list[str] | None,
+    ) -> bytes | None:
+        if self._frame_pool is not None and frame_dimensions is not None:
+            width, height = frame_dimensions
+            if width > 0 and height > 0:
+                pool_frames = self._frame_pool.read_frames(
+                    media_path=media_path,
+                    fps=fps,
+                    start_frame_index=frame_index,
+                    frame_count=1,
+                    width=int(width),
+                    height=int(height),
+                    extra_video_filters=extra_video_filters,
+                )
+                if pool_frames:
+                    return pool_frames[0][1]
+
+        quantized_source_time = self._time_from_frame_index(frame_index, fps)
+        return self._ffmpeg_gateway.extract_frame_png(
+            media_path, quantized_source_time, extra_video_filters=extra_video_filters
+        )
+
+    @staticmethod
+    def _frame_dimensions_for_asset(media_asset: MediaAsset) -> tuple[int, int] | None:
+        width = media_asset.width
+        height = media_asset.height
+        if width is None or height is None:
+            return None
+        if int(width) <= 0 or int(height) <= 0:
+            return None
+        return (int(width), int(height))
 
     @classmethod
     def _prefetch_frame_count_for_fps(cls, fps: float) -> int:
