@@ -89,7 +89,7 @@ class CaptionsPanel(QWidget):
         header.setObjectName("captions_content_title")
         top_row.addWidget(header)
 
-        self._import_button = QPushButton(self.tr("Nhập phụ đề..."), import_page)
+        self._import_button = QPushButton(self.tr("Nhập phụ đề"), import_page)
         self._import_button.setObjectName("captions_import_action_button")
         self._import_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self._import_button.clicked.connect(self._on_import_clicked)
@@ -113,6 +113,16 @@ class CaptionsPanel(QWidget):
         self._entry_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._entry_list.customContextMenuRequested.connect(self._on_context_menu_requested)
         import_layout.addWidget(self._entry_list, 1)
+        
+        # Placeholder label inside the list's viewport
+        self.placeholder_label = QLabel(self.tr("Chưa nhập phụ đề"), self._entry_list.viewport())
+        self.placeholder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.placeholder_label.setStyleSheet("color: gray; background-color: transparent;")
+        self.placeholder_label.setVisible(False)
+        
+        # Center the label when the list is resized
+        self._entry_list.viewport().installEventFilter(self)
+
         self._action_stack.addWidget(import_page)
 
         functions_page = QWidget(self._action_stack)
@@ -169,6 +179,9 @@ class CaptionsPanel(QWidget):
             if watched is self._functions_nav_label:
                 self._set_nav_mode("functions")
                 return True
+        elif watched is self._entry_list.viewport() and event.type() == QEvent.Type.Resize:
+            self.placeholder_label.resize(event.size())
+            
         return super().eventFilter(watched, event)
 
     def _set_nav_mode(self, mode: str) -> None:
@@ -195,8 +208,15 @@ class CaptionsPanel(QWidget):
         try:
             self._entry_list.clear()
             self._entry_row_keys = []
+            
+            entries = list(self._app_controller.subtitle_library_entries())
+            if not entries:
+                self.placeholder_label.setVisible(True)
+                self.placeholder_label.resize(self._entry_list.viewport().size())
+                return
 
-            for entry in self._app_controller.subtitle_library_entries():
+            self.placeholder_label.setVisible(False)
+            for entry in entries:
                 if not entry.segments:
                     continue
                 item = QListWidgetItem(self._format_entry_label(entry.source_name), self._entry_list)

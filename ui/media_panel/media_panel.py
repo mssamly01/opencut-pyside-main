@@ -55,7 +55,7 @@ class MediaPanel(QWidget):
             header.setStyleSheet("font-weight: 600; color: #e6edf3; padding: 2px 0;")
             layout.addWidget(header)
 
-        import_label = self.tr("Nhập phương tiện...") if self._embedded else self.tr("  Nhập phương tiện...")
+        import_label = self.tr("Nhập phương tiện") if self._embedded else self.tr("  Nhập phương tiện")
         self.import_button = QPushButton(import_label, self)
         if self._embedded:
             self.import_button.setObjectName("captions_import_action_button")
@@ -93,9 +93,23 @@ class MediaPanel(QWidget):
         self.media_list.customContextMenuRequested.connect(self._on_context_menu_requested)
         layout.addWidget(self.media_list, 1)
 
+        # Placeholder label inside the list's viewport
+        self.placeholder_label = QLabel(self.tr("Chưa nhập phương tiện"), self.media_list.viewport())
+        self.placeholder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.placeholder_label.setStyleSheet("color: gray; background-color: transparent;")
+        self.placeholder_label.setVisible(False)
+        
+        # Center the label when the list is resized
+        self.media_list.viewport().installEventFilter(self)
+
         self._project_controller.project_changed.connect(self._refresh_media_items)
         self._project_controller.media_assets_changed.connect(self._refresh_media_items)
         self._refresh_media_items()
+
+    def eventFilter(self, watched, event) -> bool:
+        if watched is self.media_list.viewport() and event.type() == event.Type.Resize:
+            self.placeholder_label.resize(event.size())
+        return super().eventFilter(watched, event)
 
     def open_import_dialog(self) -> None:
         self._on_import_clicked()
@@ -120,12 +134,11 @@ class MediaPanel(QWidget):
 
         project = self._project_controller.active_project()
         if project is None or not project.media_items:
-            placeholder = QListWidgetItem(self.tr("Chưa nhập phương tiện"))
-            placeholder.setFlags(Qt.ItemFlag.NoItemFlags)
-            placeholder.setForeground(Qt.GlobalColor.gray)
-            self.media_list.addItem(placeholder)
+            self.placeholder_label.setVisible(True)
+            self.placeholder_label.resize(self.media_list.viewport().size())
             return
 
+        self.placeholder_label.setVisible(False)
         project_path = self._project_controller.active_project_path()
         for media_asset in project.media_items:
             item = QListWidgetItem(self._format_short_label(media_asset))

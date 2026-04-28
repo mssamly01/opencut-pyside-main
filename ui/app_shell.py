@@ -140,6 +140,9 @@ class AppShell(QWidget):
         center_region_layout.addWidget(
             self._build_region_header(self.tr("Xem trước"), parent=center_region_container)
         )
+        center_gap = QWidget(center_region_container)
+        center_gap.setFixedHeight(self._LEFT_RAIL_DETAIL_GAP)
+        center_region_layout.addWidget(center_gap)
         center_region_layout.addWidget(self.preview_widget, 1)
 
         right_region_container = QWidget(self)
@@ -150,6 +153,9 @@ class AppShell(QWidget):
         right_region_layout.addWidget(
             self._build_region_header(self.tr("Chi tiết"), accent=True, parent=right_region_container)
         )
+        right_gap = QWidget(right_region_container)
+        right_gap.setFixedHeight(self._LEFT_RAIL_DETAIL_GAP)
+        right_region_layout.addWidget(right_gap)
         right_region_layout.addWidget(self.inspector_panel, 1)
 
         top_splitter.addWidget(left_region_container)

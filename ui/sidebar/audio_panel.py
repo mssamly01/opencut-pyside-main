@@ -7,13 +7,14 @@ from app.controllers.timeline_controller import TimelineController
 from app.domain.media_asset import MediaAsset
 from app.services.waveform_loader import WaveformLoader
 from app.ui.media_panel.media_item_widget import MediaListWidget
-from app.ui.sidebar.audio_row_widget import AudioRowWidget
+from app.ui.shared.icons import build_icon, build_pixmap, icon_size
 from PySide6.QtCore import QCoreApplication, QSize, Qt, QUrl
-from PySide6.QtGui import QAction, QDesktopServices, QGuiApplication
+from PySide6.QtGui import QAction, QBrush, QColor, QDesktopServices, QGuiApplication, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QLabel,
+    QListWidget,
     QListWidgetItem,
     QMenu,
     QMessageBox,
@@ -23,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 _AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus"}
+THUMBNAIL_SIZE = QSize(152, 100)
 
 
 def _audio_file_filter() -> str:
@@ -63,7 +65,7 @@ class AudioPanel(QWidget):
             header.setStyleSheet("font-weight: 600; color: #e6edf3; padding: 2px 0;")
             layout.addWidget(header)
 
-        self.import_button = QPushButton(self.tr("Nhập âm thanh..."), self)
+        self.import_button = QPushButton(self.tr("Nhập âm thanh"), self)
         if self._embedded:
             self.import_button.setObjectName("captions_import_action_button")
         self.import_button.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -85,16 +87,35 @@ class AudioPanel(QWidget):
         self.media_list = MediaListWidget(self)
         if self._embedded:
             self.media_list.setObjectName("captions_entry_list")
-        self.media_list.setAlternatingRowColors(not self._embedded)
+        self.media_list.setViewMode(QListWidget.ViewMode.IconMode)
+        self.media_list.setResizeMode(QListWidget.ResizeMode.Adjust)
+        self.media_list.setMovement(QListWidget.Movement.Static)
+        self.media_list.setSpacing(8 if self._embedded else 6)
+        self.media_list.setUniformItemSizes(True)
         self.media_list.setWordWrap(True)
+        self.media_list.setIconSize(THUMBNAIL_SIZE)
+        self.media_list.setGridSize(QSize(THUMBNAIL_SIZE.width() + 18, THUMBNAIL_SIZE.height() + 42))
         self.media_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.media_list.customContextMenuRequested.connect(self._on_context_menu_requested)
         layout.addWidget(self.media_list, 1)
+
+        # Placeholder label inside the list's viewport
+        self.placeholder_label = QLabel(self.tr("Chưa nhập âm thanh"), self.media_list.viewport())
+        self.placeholder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.placeholder_label.setStyleSheet("color: gray; background-color: transparent;")
+        self.placeholder_label.setVisible(False)
+        
+        # Center the label when the list is resized
+        self.media_list.viewport().installEventFilter(self)
 
         self._project_controller.project_changed.connect(self._refresh_media_items)
         self._project_controller.media_assets_changed.connect(self._refresh_media_items)
         self._refresh_media_items()
 
+    def eventFilter(self, watched, event) -> bool:
+        if watched is self.media_list.viewport() and event.type() == event.Type.Resize:
+            self.placeholder_label.resize(event.size())
+        return super().eventFilter(watched, event)
 
     def open_import_dialog(self) -> None:
         self._on_import_clicked()
@@ -113,32 +134,79 @@ class AudioPanel(QWidget):
     def _refresh_media_items(self) -> None:
         self.media_list.clear()
         project = self._project_controller.active_project()
-        if project is None:
+
+        if project is None or not project.media_items:
+            self.placeholder_label.setVisible(True)
+            self.placeholder_label.resize(self.media_list.viewport().size())
             return
 
         has_items = False
         for media_asset in project.media_items:
             if not self._is_audio(media_asset):
                 continue
-            item = QListWidgetItem(self.media_list)
+            item = QListWidgetItem(self._format_short_label(media_asset), self.media_list)
             item.setData(Qt.ItemDataRole.UserRole, media_asset.media_id)
-            item.setToolTip(AudioRowWidget.format_tooltip(media_asset))
-            item.setSizeHint(QSize(0, 32))
-            row_widget = AudioRowWidget(
-                media_asset=media_asset,
-                waveform_loader=self._waveform_loader,
-                project_path=self._project_controller.active_project_path(),
-                parent=self.media_list,
-            )
-            self.media_list.setItemWidget(item, row_widget)
+            item.setToolTip(self._format_tooltip(media_asset))
+            item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter)
+            item.setSizeHint(QSize(THUMBNAIL_SIZE.width() + 16, THUMBNAIL_SIZE.height() + 40))
+            item.setIcon(self._build_media_icon(media_asset))
             has_items = True
 
-        if has_items:
-            return
+        if not has_items:
+            self.placeholder_label.setVisible(True)
+            self.placeholder_label.resize(self.media_list.viewport().size())
+        else:
+            self.placeholder_label.setVisible(False)
 
-        placeholder = QListWidgetItem(self.tr("Chưa nhập âm thanh"), self.media_list)
-        placeholder.setFlags(Qt.ItemFlag.NoItemFlags)
-        placeholder.setForeground(Qt.GlobalColor.gray)
+    def _build_media_icon(self, media_asset: MediaAsset) -> QIcon:
+        placeholder_color = "#3a9b6f"  # Audio green
+        glyph = "volume"
+
+        placeholder = QPixmap(THUMBNAIL_SIZE)
+        placeholder.fill(Qt.GlobalColor.transparent)
+
+        painter = QPainter(placeholder)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setBrush(QBrush(QColor(placeholder_color)))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(placeholder.rect(), 6, 6)
+        glyph_pixmap = build_pixmap(glyph, 40, "#ffffff")
+        painter.drawPixmap(
+            (THUMBNAIL_SIZE.width() - glyph_pixmap.width()) // 2,
+            (THUMBNAIL_SIZE.height() - glyph_pixmap.height()) // 2,
+            glyph_pixmap,
+        )
+        painter.end()
+        return QIcon(placeholder)
+
+    @staticmethod
+    def _format_short_label(media_asset: MediaAsset) -> str:
+        file_name = Path(media_asset.file_path).name if media_asset.file_path else media_asset.name
+        if len(file_name) <= 22:
+            return file_name
+        return file_name[:19] + "..."
+
+    @staticmethod
+    def _format_tooltip(media_asset: MediaAsset) -> str:
+        translate = QCoreApplication.translate
+        file_name = Path(media_asset.file_path).name if media_asset.file_path else media_asset.name
+        parts = [
+            file_name,
+            translate("AudioPanel", "Loại: {type}").format(type=media_asset.media_type),
+        ]
+        if media_asset.duration_seconds:
+            parts.append(
+                translate("AudioPanel", "Thời lượng: {seconds:.2f}s").format(
+                    seconds=media_asset.duration_seconds
+                )
+            )
+        if media_asset.file_size_bytes:
+            parts.append(
+                translate("AudioPanel", "Kích thước: {size:.1f} MB").format(
+                    size=media_asset.file_size_bytes / (1024 * 1024)
+                )
+            )
+        return "\n".join(parts)
 
     @staticmethod
     def _is_audio(asset: MediaAsset) -> bool:

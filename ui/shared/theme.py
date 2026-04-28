@@ -205,10 +205,10 @@ QWidget#workspace_right_region_container {
     background-color: #141414;
 }
 QWidget#workspace_preview_region {
-    background-color: #303030;
+    background-color: #262626;
 }
 QWidget#workspace_inspector_region {
-    background-color: #303030;
+    background-color: #262626;
     border: none;
 }
 QWidget#workspace_timeline_region {
@@ -222,16 +222,18 @@ QWidget#workspace_region_header {
     max-height: 56px;
 }
 QLabel#workspace_region_header_title {
+    background-color: transparent;
     color: #d6d9df;
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 600;
 }
 QLabel#workspace_region_header_title[accent="true"] {
+    background-color: transparent;
     color: #16d3e2;
 }
 
 #preview_canvas {
-    background-color: #0b0d11;
+    background-color: #262626;
     border: none;
     border-radius: 2px;
     color: #e8ebef;

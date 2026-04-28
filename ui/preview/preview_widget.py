@@ -104,13 +104,13 @@ class _PreviewCanvas(QWidget):
         super().paintEvent(event)
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        painter.fillRect(self.rect(), QColor("#0c0e12"))
+        painter.fillRect(self.rect(), QColor("#262626"))
 
         project_rect = self._project_rect()
         if project_rect.width() <= 1.0 or project_rect.height() <= 1.0:
             return
 
-        painter.fillRect(project_rect, QColor("#11161f"))
+        painter.fillRect(project_rect, QColor("#000000"))
         if self._preview_image is None or self._preview_image.isNull():
             painter.setPen(QColor("#8c9bab"))
             painter.drawText(
@@ -705,7 +705,7 @@ class PreviewWidget(QWidget):
         bottom_bar = QWidget(self)
         bottom_bar.setObjectName("previewBottomBar")
         bottom_bar.setFixedHeight(44)
-        bottom_bar.setStyleSheet("#previewBottomBar { background: #1a1d23; border-top: 1px solid #2a2f37; }")
+        bottom_bar.setStyleSheet("#previewBottomBar { background: #262626; border-top: 1px solid #2a2f37; }")
         bottom_layout = QHBoxLayout(bottom_bar)
         bottom_layout.setContentsMargins(8, 4, 8, 4)
         bottom_layout.setSpacing(8)
