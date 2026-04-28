@@ -66,6 +66,21 @@ class ClipItem(QGraphicsRectItem):
             return "fade_out"
         return None
 
+    def set_thumbnails(self, thumbnails: list[QPixmap]) -> None:
+        """Replace the filmstrip pixmaps and re-tile (used by the async loader)."""
+
+        self._thumbnail_sources = [
+            pixmap for pixmap in thumbnails if pixmap is not None and not pixmap.isNull()
+        ]
+        self._refresh_thumbnail_pixmaps()
+        self.update()
+
+    def set_waveform_peaks(self, peaks: list[float]) -> None:
+        """Replace the waveform peaks (used by the async waveform loader)."""
+
+        self._waveform_peaks = [max(0.0, min(float(value), 1.0)) for value in (peaks or [])]
+        self.update()
+
     def set_display_geometry(self, scene_x: float, width: float) -> None:
         clamped_width = max(1.0, width)
         self.setPos(scene_x, self.scenePos().y())

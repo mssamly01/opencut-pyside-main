@@ -7,7 +7,7 @@ from app.controllers.timeline_controller import TimelineController
 from app.domain.media_asset import MediaAsset
 from app.services.waveform_loader import WaveformLoader
 from app.ui.media_panel.media_item_widget import MediaListWidget
-from app.ui.shared.icons import build_icon, build_pixmap, icon_size
+from app.ui.shared.icons import build_pixmap
 from PySide6.QtCore import QCoreApplication, QSize, Qt, QUrl
 from PySide6.QtGui import QAction, QBrush, QColor, QDesktopServices, QGuiApplication, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
@@ -104,7 +104,7 @@ class AudioPanel(QWidget):
         self.placeholder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.placeholder_label.setStyleSheet("color: gray; background-color: transparent;")
         self.placeholder_label.setVisible(False)
-        
+
         # Center the label when the list is resized
         self.media_list.viewport().installEventFilter(self)
 

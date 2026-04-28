@@ -113,13 +113,13 @@ class CaptionsPanel(QWidget):
         self._entry_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._entry_list.customContextMenuRequested.connect(self._on_context_menu_requested)
         import_layout.addWidget(self._entry_list, 1)
-        
+
         # Placeholder label inside the list's viewport
         self.placeholder_label = QLabel(self.tr("Chưa nhập phụ đề"), self._entry_list.viewport())
         self.placeholder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.placeholder_label.setStyleSheet("color: gray; background-color: transparent;")
         self.placeholder_label.setVisible(False)
-        
+
         # Center the label when the list is resized
         self._entry_list.viewport().installEventFilter(self)
 
@@ -136,6 +136,14 @@ class CaptionsPanel(QWidget):
         functions_layout = QVBoxLayout(self._functions_table)
         functions_layout.setContentsMargins(8, 8, 8, 8)
         functions_layout.setSpacing(6)
+
+        self._extract_subtitle_button = QPushButton(
+            self.tr("Trích xuất phụ đề từ video"), self._functions_table
+        )
+        self._extract_subtitle_button.setObjectName("captions_function_action_button")
+        self._extract_subtitle_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._extract_subtitle_button.clicked.connect(self._on_extract_subtitle_clicked)
+        functions_layout.addWidget(self._extract_subtitle_button)
 
         self._filter_ocr_button = QPushButton(self.tr("Lọc lỗi OCR"), self._functions_table)
         self._filter_ocr_button.setObjectName("captions_function_action_button")
@@ -181,7 +189,7 @@ class CaptionsPanel(QWidget):
                 return True
         elif watched is self._entry_list.viewport() and event.type() == QEvent.Type.Resize:
             self.placeholder_label.resize(event.size())
-            
+
         return super().eventFilter(watched, event)
 
     def _set_nav_mode(self, mode: str) -> None:
@@ -208,7 +216,7 @@ class CaptionsPanel(QWidget):
         try:
             self._entry_list.clear()
             self._entry_row_keys = []
-            
+
             entries = list(self._app_controller.subtitle_library_entries())
             if not entries:
                 self.placeholder_label.setVisible(True)
@@ -293,6 +301,33 @@ class CaptionsPanel(QWidget):
         if not self._ensure_subtitle_selected():
             return
         self._app_controller.request_subtitle_interjection_cleanup()
+
+    def _on_extract_subtitle_clicked(self) -> None:
+        # Lazy import to keep paddle/cv2 hard-deps out of the captions panel
+        # import path (the dialog itself imports the service which imports
+        # them lazily, but this defers even the dialog module load).
+        from app.ui.dialogs.extract_subtitle_dialog import ExtractSubtitleDialog
+
+        dialog = ExtractSubtitleDialog(
+            settings_service=self._app_controller.settings_service,
+            parent=self,
+        )
+        if dialog.exec() != ExtractSubtitleDialog.DialogCode.Accepted:
+            return
+        srt_path = dialog.result_srt_path
+        if not srt_path:
+            return
+        try:
+            imported = self._app_controller.import_subtitles_from_file(srt_path)
+        except (OSError, ValueError) as exc:
+            QMessageBox.critical(self, self.tr("Subtitle import failed"), str(exc))
+            return
+        if imported <= 0:
+            QMessageBox.information(
+                self,
+                self.tr("Trích xuất phụ đề"),
+                self.tr("Phụ đề được tạo nhưng không có dòng nào hợp lệ."),
+            )
 
     def _sync_selection_from_controller(self) -> None:
         selected = self._app_controller.selected_subtitle_segment()

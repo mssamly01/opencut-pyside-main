@@ -71,12 +71,12 @@ class LeftRail(QWidget):
             self._group.addButton(button)
             self._buttons[key] = button
             self._icon_names[key] = icon_name
-            
+
             # Estimate width: text width + padding
             # Using sizeHint() before showing might be inaccurate, but we can try
             # or use a safe estimate.
             total_width += button.sizeHint().width()
-        
+
         self.setFixedWidth(total_width)
 
         first_key = RAIL_CATEGORIES[0][0]

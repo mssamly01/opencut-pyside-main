@@ -41,6 +41,34 @@ class WaveformService:
             return []
         return self.get_peaks_for_asset(media_asset, project_path)
 
+    def peek_cached_peaks(
+        self,
+        media_asset: MediaAsset,
+        project_path: str | None = None,
+    ) -> list[float]:
+        """Return cached peaks without ever spawning ffmpeg.
+
+        Memory-cache hits return immediately; disk-cache hits are O(1ms)
+        for typical peak files (<16 KB). Cache misses return ``[]`` and
+        leave the caller responsible for kicking off async extraction.
+        """
+
+        if media_asset.media_type.lower() not in {"audio", "video"}:
+            return []
+
+        cache_path = self._cache_path(media_asset.media_id)
+        cache_key = str(cache_path)
+        in_memory = self._memory_cache.get(cache_key)
+        if in_memory is not None:
+            return in_memory
+
+        disk_cached = self._read_peaks_from_disk(cache_path)
+        if disk_cached:
+            self._memory_cache[cache_key] = disk_cached
+            return disk_cached
+
+        return []
+
     def get_peaks_for_asset(
         self,
         media_asset: MediaAsset,

@@ -13,7 +13,6 @@ from app.ui.timeline.clip_item import ClipItem
 from app.ui.timeline.timeline_scene import TimelineScene
 from PySide6.QtCore import QPoint, QRectF, Qt
 from PySide6.QtGui import (
-    QBrush,
     QColor,
     QContextMenuEvent,
     QCursor,
