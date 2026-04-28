@@ -54,6 +54,10 @@ class _DragState:
     start_rotation: float
     start_radius: float = 0.0
     start_angle: float = 0.0
+    # ``font_size`` is captured separately for TextClip resizing so the corner
+    # drag updates the font instead of clip.scale (which doesn't affect text
+    # rendering). Stays at 0 for non-text clips.
+    start_font_size: int = 0
 
 
 class _PreviewCanvas(QWidget):
@@ -231,6 +235,7 @@ class _PreviewCanvas(QWidget):
             start_rotation=float(getattr(clip, "rotation", 0.0)),
             start_radius=start_radius,
             start_angle=start_angle,
+            start_font_size=int(getattr(clip, "font_size", 0)),
         )
         self.setCursor(Qt.CursorShape.ClosedHandCursor if hit_handle == "body" else Qt.CursorShape.SizeAllCursor)
         event.accept()
@@ -276,7 +281,18 @@ class _PreviewCanvas(QWidget):
 
         current_radius = max(1.0, self._distance(center, pos))
         ratio = current_radius / max(1.0, drag.start_radius)
-        self._timeline_controller.set_clip_transform(drag.clip_id, scale=drag.start_scale * ratio)
+        if isinstance(clip, TextClip) and drag.start_font_size > 0:
+            # Resize text by changing font_size directly (matches the
+            # reference editor_app behaviour). clip.scale doesn't affect
+            # text rendering, so dragging it would do nothing visually.
+            new_font_size = max(8, int(round(drag.start_font_size * ratio)))
+            self._timeline_controller.set_clip_transform(
+                drag.clip_id, font_size=new_font_size
+            )
+        else:
+            self._timeline_controller.set_clip_transform(
+                drag.clip_id, scale=drag.start_scale * ratio
+            )
         event.accept()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
@@ -552,9 +568,19 @@ class _PreviewCanvas(QWidget):
             target_rect.left() + position_x * target_rect.width(),
             target_rect.top() + position_y * target_rect.height(),
         )
-        base_factor = 0.38 if isinstance(clip, TextClip) else 0.52
-        width = max(34.0, target_rect.width() * base_factor * scale)
-        height = max(24.0, target_rect.height() * base_factor * scale)
+        if isinstance(clip, TextClip):
+            # Hug the rendered text so the resize handles track the visible
+            # block size as font_size changes.
+            text_size = self._text_clip_block_size(clip, target_rect)
+            if text_size is None:
+                width = max(34.0, target_rect.width() * 0.38)
+                height = max(24.0, target_rect.height() * 0.38)
+            else:
+                width, height = text_size
+        else:
+            base_factor = 0.52
+            width = max(34.0, target_rect.width() * base_factor * scale)
+            height = max(24.0, target_rect.height() * base_factor * scale)
         raw = QRectF(center.x() - width / 2.0, center.y() - height / 2.0, width, height)
 
         transform = QTransform()
@@ -584,6 +610,39 @@ class _PreviewCanvas(QWidget):
             "rot": rot,
         }
         return center, corners, handles, top_center
+
+    def _text_clip_block_size(
+        self, clip: TextClip, target_rect: QRectF
+    ) -> tuple[float, float] | None:
+        """Width/height of the rendered text block in widget pixels.
+
+        Mirrors the metrics computation in ``_draw_text_clip_overlay`` so the
+        transform handles tightly hug the text as ``font_size`` changes.
+        Returns ``None`` if there's no active project to scale against.
+        """
+
+        project = self._project_controller.active_project()
+        if project is None or project.width <= 0:
+            return None
+        scale_factor = target_rect.width() / float(project.width)
+        font_size = max(1, int(round(float(clip.font_size) * scale_factor)))
+        font = QFont(clip.font_family or "Arial", font_size)
+        font.setBold(bool(clip.bold))
+        font.setItalic(bool(clip.italic))
+        metrics = QFontMetricsF(font)
+        lines = (clip.content or "Text").split("\n")
+        line_widths = [metrics.horizontalAdvance(line) for line in lines]
+        block_width = max(line_widths) if line_widths else 0.0
+        line_height = metrics.height()
+        total_height = max(line_height, line_height * len(lines))
+        # Pad slightly so the box doesn't clip the text exactly on its
+        # outline. The pad scales with font height to stay proportional.
+        pad_x = max(8.0, line_height * 0.4)
+        pad_y = max(6.0, line_height * 0.3)
+        return (
+            max(34.0, block_width + 2 * pad_x),
+            max(24.0, total_height + 2 * pad_y),
+        )
 
     @staticmethod
     def _overlay_path(corners: dict[str, QPointF]):

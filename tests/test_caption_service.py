@@ -88,3 +88,97 @@ def test_serialize_srt_skips_empty_and_invalid_segments() -> None:
     assert "Keep me" in content
     assert "Zero duration" not in content
     assert content.count("-->") == 1
+
+
+def _write_bytes(path: Path, text: str, encoding: str) -> None:
+    path.write_bytes(text.encode(encoding))
+
+
+def test_parse_file_decodes_utf8_with_bom(tmp_path: Path) -> None:
+    """SRT exported from Notepad with BOM (utf-8-sig) must be readable."""
+
+    srt_path = tmp_path / "bom.srt"
+    _write_bytes(
+        srt_path,
+        "1\n00:00:01,000 --> 00:00:02,000\nHello\n",
+        "utf-8-sig",
+    )
+
+    segments = CaptionService().parse_file(str(srt_path))
+
+    assert len(segments) == 1
+    assert segments[0].text == "Hello"
+
+
+def test_parse_file_strips_utf8_bom_when_first_line_is_timestamp(tmp_path: Path) -> None:
+    """A BOM-prefixed SRT that omits the numeric index line still parses.
+
+    The plain ``utf-8`` codec accepts the BOM but leaves it as ``\\ufeff``
+    in the decoded string, which then prefixes the timestamp and makes the
+    regex fail. Trying ``utf-8-sig`` first strips the BOM correctly.
+    """
+
+    srt_path = tmp_path / "bom_no_index.srt"
+    # Note: no leading "1\n" — the timestamp is the first line.
+    _write_bytes(
+        srt_path,
+        "00:00:01,000 --> 00:00:02,000\nHello\n",
+        "utf-8-sig",
+    )
+
+    segments = CaptionService().parse_file(str(srt_path))
+
+    assert len(segments) == 1
+    assert segments[0].text == "Hello"
+    assert "\ufeff" not in segments[0].text
+
+
+def test_parse_file_decodes_cp1252(tmp_path: Path) -> None:
+    """Western Windows default encoding for legacy SRT files."""
+
+    srt_path = tmp_path / "windows.srt"
+    _write_bytes(
+        srt_path,
+        "1\n00:00:01,000 --> 00:00:02,000\nNaïve café résumé\n",
+        "cp1252",
+    )
+
+    segments = CaptionService().parse_file(str(srt_path))
+
+    assert len(segments) == 1
+    assert segments[0].text == "Naïve café résumé"
+
+
+def test_parse_file_decodes_gbk(tmp_path: Path) -> None:
+    """Chinese Windows default encoding — frequent for SRT files in CN."""
+
+    srt_path = tmp_path / "gbk.srt"
+    _write_bytes(
+        srt_path,
+        "1\n00:00:01,000 --> 00:00:02,000\n你好世界\n",
+        "gbk",
+    )
+
+    segments = CaptionService().parse_file(str(srt_path))
+
+    assert len(segments) == 1
+    assert segments[0].text == "你好世界"
+
+
+def test_parse_file_falls_back_to_latin1_for_undecodable_bytes(tmp_path: Path) -> None:
+    """latin-1 accepts every byte so import must never raise on bad data —
+    user gets a recognizable file even if some characters are wrong, which
+    is preferable to a hard failure with no segments."""
+
+    srt_path = tmp_path / "weird.srt"
+    # Bytes that aren't valid utf-8 / utf-8-sig; cp1252 happens to accept
+    # them (it accepts most byte sequences) — that's fine, the contract is
+    # just "must not raise and must return segments".
+    srt_path.write_bytes(
+        b"1\n00:00:01,000 --> 00:00:02,000\nHello\xff\xfe weird\n"
+    )
+
+    segments = CaptionService().parse_file(str(srt_path))
+
+    assert len(segments) == 1
+    assert segments[0].text.startswith("Hello")

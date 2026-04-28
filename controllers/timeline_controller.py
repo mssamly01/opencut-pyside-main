@@ -1092,6 +1092,7 @@ class TimelineController(QObject):
         position_y: float | None = None,
         scale: float | None = None,
         rotation: float | None = None,
+        font_size: int | None = None,
     ) -> bool:
         clip = self._find_clip_by_id(clip_id)
         if clip is None:
@@ -1110,6 +1111,7 @@ class TimelineController(QObject):
             ("position_y", position_y, lambda v: max(-2.0, min(3.0, float(v)))),
             ("scale", scale, lambda v: max(0.05, min(8.0, float(v)))),
             ("rotation", rotation, lambda v: ((float(v) + 180.0) % 360.0) - 180.0),
+            ("font_size", font_size, lambda v: max(8, min(800, int(round(float(v)))))),
         ):
             if value is None or not hasattr(clip, attr):
                 continue
@@ -1118,7 +1120,9 @@ class TimelineController(QObject):
             if abs(float(current_value) - float(next_value)) <= 1e-6:
                 continue
             updates.append(UpdatePropertyCommand(clip, attr, next_value))
-            if self._auto_keyframe_enabled:
+            # font_size is an int property without a matching keyframe list, so
+            # skip the auto-keyframe path and only emit the property update.
+            if self._auto_keyframe_enabled and attr != "font_size":
                 updates.append(
                     AddKeyframeCommand(
                         clip,
@@ -1551,6 +1555,16 @@ class TimelineController(QObject):
 
         base_offset = max(0.0, self._playhead_seconds if timeline_offset_seconds is None else timeline_offset_seconds)
 
+        # Fast-path bookkeeping: when the next caption clip starts at or after the
+        # text track's current max-end, we can skip the O(N) overlap scan and just
+        # append directly. This avoids O(N^2) work when bulk-loading thousands of
+        # SRT/VTT segments.
+        epsilon = 1e-6
+        text_track_max_end = max(
+            (existing.timeline_end for existing in text_track.clips),
+            default=0.0,
+        )
+
         created_clip_ids: list[str] = []
         for segment_start, segment_end, segment_text in segments:
             start = max(0.0, base_offset + segment_start)
@@ -1575,13 +1589,20 @@ class TimelineController(QObject):
                 outline_color="#000000",
                 outline_width=3.0,
             )
-            destination_track = self._find_track_for_non_overlapping_placement(
-                timeline=timeline,
-                clip=clip,
-                proposed_start=clip.timeline_start,
-                preferred_track_id=text_track.track_id,
-                allow_create_track=True,
-            )
+            if (
+                not text_track.is_locked
+                and self._track_accepts_clip(text_track, clip)
+                and start >= text_track_max_end - epsilon
+            ):
+                destination_track: Track | None = text_track
+            else:
+                destination_track = self._find_track_for_non_overlapping_placement(
+                    timeline=timeline,
+                    clip=clip,
+                    proposed_start=clip.timeline_start,
+                    preferred_track_id=text_track.track_id,
+                    allow_create_track=True,
+                )
             if destination_track is None:
                 continue
             clip.track_id = destination_track.track_id
@@ -1594,6 +1615,8 @@ class TimelineController(QObject):
                 )
             )
             created_clip_ids.append(clip_id)
+            if destination_track is text_track:
+                text_track_max_end = max(text_track_max_end, end)
 
         if not created_clip_ids:
             return []

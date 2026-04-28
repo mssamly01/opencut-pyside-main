@@ -12,6 +12,7 @@ from PySide6.QtCore import QCoreApplication, QSize, Qt, QUrl
 from PySide6.QtGui import QAction, QBrush, QColor, QDesktopServices, QGuiApplication, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QFileDialog,
+    QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
@@ -32,32 +33,58 @@ class MediaPanel(QWidget):
         parent: QWidget | None = None,
         thumbnail_service: ThumbnailService | None = None,
         timeline_controller: TimelineController | None = None,
+        *,
+        embedded: bool = False,
     ) -> None:
         super().__init__(parent)
         self._project_controller = project_controller
         self._thumbnail_service = thumbnail_service or ThumbnailService()
         self._timeline_controller = timeline_controller
+        self._embedded = bool(embedded)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(6)
+        if self._embedded:
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(0)
+        else:
+            layout.setContentsMargins(8, 8, 8, 8)
+            layout.setSpacing(6)
 
-        header = QLabel(self.tr("Thư viện phương tiện"), self)
-        header.setStyleSheet("font-weight: 600; color: #e6edf3; padding: 2px 0;")
-        layout.addWidget(header)
+        if not self._embedded:
+            header = QLabel(self.tr("Thư viện phương tiện"), self)
+            header.setStyleSheet("font-weight: 600; color: #e6edf3; padding: 2px 0;")
+            layout.addWidget(header)
 
-        self.import_button = QPushButton(self.tr("  Nhập phương tiện..."), self)
-        self.import_button.setIcon(build_icon("import-media"))
-        self.import_button.setIconSize(icon_size(16))
+        import_label = self.tr("Nhập phương tiện...") if self._embedded else self.tr("  Nhập phương tiện...")
+        self.import_button = QPushButton(import_label, self)
+        if self._embedded:
+            self.import_button.setObjectName("captions_import_action_button")
+        else:
+            self.import_button.setIcon(build_icon("import-media"))
+            self.import_button.setIconSize(icon_size(16))
         self.import_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.import_button.clicked.connect(self._on_import_clicked)
-        layout.addWidget(self.import_button)
+        if self._embedded:
+            top_row = QHBoxLayout()
+            top_row.setContentsMargins(0, 0, 0, 0)
+            top_row.setSpacing(6)
+            header = QLabel(self.tr("Tất cả"), self)
+            header.setObjectName("captions_content_title")
+            top_row.addWidget(header)
+            top_row.addStretch(1)
+            top_row.addWidget(self.import_button)
+            layout.addLayout(top_row)
+            layout.addSpacing(12)
+        else:
+            layout.addWidget(self.import_button)
 
         self.media_list = MediaListWidget(self)
+        if self._embedded:
+            self.media_list.setObjectName("captions_entry_list")
         self.media_list.setViewMode(QListWidget.ViewMode.IconMode)
         self.media_list.setResizeMode(QListWidget.ResizeMode.Adjust)
         self.media_list.setMovement(QListWidget.Movement.Static)
-        self.media_list.setSpacing(6)
+        self.media_list.setSpacing(8 if self._embedded else 6)
         self.media_list.setUniformItemSizes(True)
         self.media_list.setWordWrap(True)
         self.media_list.setIconSize(THUMBNAIL_SIZE)

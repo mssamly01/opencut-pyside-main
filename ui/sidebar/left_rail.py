@@ -7,20 +7,19 @@ from PySide6.QtCore import QCoreApplication, QSize, Qt, Signal
 from PySide6.QtWidgets import QButtonGroup, QHBoxLayout, QToolButton, QWidget
 
 # Keep ordering stable: index maps to LeftSidebarStack page index.
-# Labels are translated lazily via QCoreApplication.translate so they pick up
-# the active QTranslator at widget-build time.
+# Captions is intentionally next to Audio per product request.
 RAIL_CATEGORIES: list[tuple[str, str, str]] = [
     ("media", "Phương tiện", "rail-media"),
     ("audio", "Âm thanh", "rail-audio"),
+    ("captions", "Phụ đề", "rail-captions"),
     ("effects", "Hiệu ứng", "rail-effects"),
     ("transitions", "Chuyển tiếp", "rail-transitions"),
-    ("captions", "Phụ đề", "rail-captions"),
 ]
 
 _BUTTON_WIDTH = 80
 _BUTTON_HEIGHT = 44
-_ICON_DEFAULT_COLOR = "#cdd4dc"
-_ICON_ACTIVE_COLOR = "#14dbe8"
+_ICON_DEFAULT_COLOR = "#d6d9df"
+_ICON_ACTIVE_COLOR = "#16d3e2"
 
 
 class LeftRail(QWidget):
@@ -31,23 +30,26 @@ class LeftRail(QWidget):
         self.setObjectName("leftRail")
         self.setFixedHeight(56)
         self.setStyleSheet(
+            "#leftRail {"
+            " background: #303030;"
+            " }"
             "#leftRail QToolButton {"
-             " border: none;"
-             " background: transparent;"
-             " color: #d4dde8;"
-             " border-radius: 6px;"
-             " padding: 0px;"
-             " spacing: 0px;"
-             " margin: 0px;"
+            " border: none;"
+            " background: transparent;"
+            " color: #d6d9df;"
+            " border-radius: 6px;"
+            " padding: 0px;"
+            " spacing: 0px;"
+            " margin: 0px;"
             " }"
             "#leftRail QToolButton:hover {"
-             " border: none;"
-             " background: transparent;"
+            " border: none;"
+            " background: #2b2f36;"
             " }"
             "#leftRail QToolButton:checked {"
-             " border: none;"
-             " background: transparent;"
-             " color: #14dbe8;"
+            " border: none;"
+            " background: transparent;"
+            " color: #16d3e2;"
             " }"
         )
 

@@ -4,7 +4,7 @@ from pathlib import Path
 
 from app.controllers.app_controller import AppController
 from app.ui.shared.icons import build_pixmap
-from PySide6.QtCore import QRect, QSize, Qt, QUrl
+from PySide6.QtCore import QEvent, QRect, QSize, Qt, QUrl
 from PySide6.QtGui import QAction, QBrush, QColor, QDesktopServices, QFont, QGuiApplication, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -16,11 +16,13 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
 SUBTITLE_TILE_SIZE = QSize(88, 70)
+CAPTIONS_NAV_COLUMN_WIDTH = 112
 
 
 class CaptionsPanel(QWidget):
@@ -31,6 +33,7 @@ class CaptionsPanel(QWidget):
         self.setObjectName("captionsPanel")
         self._app_controller = app_controller
         self._refreshing = False
+        self._nav_mode = "import"
         self._entry_row_keys: list[str] = []
 
         layout = QHBoxLayout(self)
@@ -39,14 +42,24 @@ class CaptionsPanel(QWidget):
 
         left_column = QWidget(self)
         left_column.setObjectName("captions_left_column")
-        left_column.setFixedWidth(92)
+        left_column.setFixedWidth(CAPTIONS_NAV_COLUMN_WIDTH)
         left_layout = QVBoxLayout(left_column)
         left_layout.setContentsMargins(8, 10, 8, 10)
         left_layout.setSpacing(8)
 
         self._import_nav_label = QLabel(self.tr("Nhập"), left_column)
         self._import_nav_label.setObjectName("captions_nav_label")
+        self._import_nav_label.setProperty("active", True)
+        self._import_nav_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._import_nav_label.installEventFilter(self)
         left_layout.addWidget(self._import_nav_label)
+
+        self._functions_nav_label = QLabel(self.tr("Chức năng"), left_column)
+        self._functions_nav_label.setObjectName("captions_nav_label")
+        self._functions_nav_label.setProperty("active", False)
+        self._functions_nav_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._functions_nav_label.installEventFilter(self)
+        left_layout.addWidget(self._functions_nav_label)
         left_layout.addStretch(1)
 
         separator = QFrame(self)
@@ -59,23 +72,34 @@ class CaptionsPanel(QWidget):
         right_layout.setContentsMargins(10, 10, 8, 8)
         right_layout.setSpacing(6)
 
+        self._action_stack = QStackedWidget(right_column)
+        right_layout.addWidget(self._action_stack, 1)
+
+        import_page = QWidget(self._action_stack)
+        import_page.setObjectName("captions_import_page")
+        import_layout = QVBoxLayout(import_page)
+        import_layout.setContentsMargins(0, 0, 0, 0)
+        import_layout.setSpacing(0)
+
         top_row = QHBoxLayout()
         top_row.setContentsMargins(0, 0, 0, 0)
         top_row.setSpacing(6)
 
-        header = QLabel(self.tr("Tất cả"), right_column)
+        header = QLabel(self.tr("Tất cả"), import_page)
         header.setObjectName("captions_content_title")
         top_row.addWidget(header)
 
-        self._import_button = QPushButton(self.tr("Nhập phụ đề..."), right_column)
+        self._import_button = QPushButton(self.tr("Nhập phụ đề..."), import_page)
         self._import_button.setObjectName("captions_import_action_button")
         self._import_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self._import_button.clicked.connect(self._on_import_clicked)
         top_row.addStretch(1)
         top_row.addWidget(self._import_button)
-        right_layout.addLayout(top_row)
+        import_layout.addLayout(top_row)
+        import_layout.addSpacing(12)
 
-        self._entry_list = QListWidget(right_column)
+        self._entry_list = QListWidget(import_page)
+        self._entry_list.setObjectName("captions_entry_list")
         self._entry_list.setViewMode(QListWidget.ViewMode.IconMode)
         self._entry_list.setResizeMode(QListWidget.ResizeMode.Adjust)
         self._entry_list.setMovement(QListWidget.Movement.Static)
@@ -88,7 +112,45 @@ class CaptionsPanel(QWidget):
         self._entry_list.currentRowChanged.connect(self._on_entry_row_changed)
         self._entry_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._entry_list.customContextMenuRequested.connect(self._on_context_menu_requested)
-        right_layout.addWidget(self._entry_list, 1)
+        import_layout.addWidget(self._entry_list, 1)
+        self._action_stack.addWidget(import_page)
+
+        functions_page = QWidget(self._action_stack)
+        functions_page.setObjectName("captions_functions_page")
+        functions_page_layout = QVBoxLayout(functions_page)
+        functions_page_layout.setContentsMargins(0, 0, 0, 0)
+        functions_page_layout.setSpacing(8)
+
+        self._functions_table = QFrame(functions_page)
+        self._functions_table.setObjectName("captions_functions_table")
+        functions_layout = QVBoxLayout(self._functions_table)
+        functions_layout.setContentsMargins(8, 8, 8, 8)
+        functions_layout.setSpacing(6)
+
+        self._filter_ocr_button = QPushButton(self.tr("Lọc lỗi OCR"), self._functions_table)
+        self._filter_ocr_button.setObjectName("captions_function_action_button")
+        self._filter_ocr_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._filter_ocr_button.clicked.connect(self._on_filter_ocr_clicked)
+        functions_layout.addWidget(self._filter_ocr_button)
+
+        self._filter_duplicate_button = QPushButton(
+            self.tr("Lọc phụ đề trùng lặp"), self._functions_table
+        )
+        self._filter_duplicate_button.setObjectName("captions_function_action_button")
+        self._filter_duplicate_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._filter_duplicate_button.clicked.connect(self._on_filter_duplicate_clicked)
+        functions_layout.addWidget(self._filter_duplicate_button)
+
+        self._remove_interjection_button = QPushButton(
+            self.tr("Xóa từ cảm thán"), self._functions_table
+        )
+        self._remove_interjection_button.setObjectName("captions_function_action_button")
+        self._remove_interjection_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._remove_interjection_button.clicked.connect(self._on_remove_interjection_clicked)
+        functions_layout.addWidget(self._remove_interjection_button)
+        functions_layout.addStretch(1)
+        functions_page_layout.addWidget(self._functions_table, 1)
+        self._action_stack.addWidget(functions_page)
 
         layout.addWidget(left_column)
         layout.addWidget(separator)
@@ -96,7 +158,37 @@ class CaptionsPanel(QWidget):
 
         self._app_controller.subtitle_library_changed.connect(self._refresh)
         self._app_controller.subtitle_selection_changed.connect(self._sync_selection_from_controller)
+        self._set_nav_mode("import")
         self._refresh()
+
+    def eventFilter(self, watched: object, event: QEvent) -> bool:
+        if event.type() == QEvent.Type.MouseButtonPress:
+            if watched is self._import_nav_label:
+                self._set_nav_mode("import")
+                return True
+            if watched is self._functions_nav_label:
+                self._set_nav_mode("functions")
+                return True
+        return super().eventFilter(watched, event)
+
+    def _set_nav_mode(self, mode: str) -> None:
+        normalized = "functions" if mode == "functions" else "import"
+        if self._nav_mode == normalized and self._action_stack.currentIndex() >= 0:
+            return
+        self._nav_mode = normalized
+        self._action_stack.setCurrentIndex(0 if normalized == "import" else 1)
+        self._set_nav_label_active(self._import_nav_label, normalized == "import")
+        self._set_nav_label_active(self._functions_nav_label, normalized == "functions")
+
+    @staticmethod
+    def _set_nav_label_active(label: QLabel, active: bool) -> None:
+        if bool(label.property("active")) == bool(active):
+            return
+        label.setProperty("active", bool(active))
+        style = label.style()
+        style.unpolish(label)
+        style.polish(label)
+        label.update()
 
     def _refresh(self) -> None:
         self._refreshing = True
@@ -147,6 +239,40 @@ class CaptionsPanel(QWidget):
                 self.tr("Import subtitles"),
                 self.tr("No subtitle lines were imported."),
             )
+
+    def _ensure_subtitle_selected(self) -> bool:
+        selected = self._app_controller.selected_subtitle_segment()
+        if selected is not None:
+            return True
+        if not self._entry_row_keys:
+            QMessageBox.information(
+                self,
+                self.tr("Chức năng phụ đề"),
+                self.tr("Chưa có phụ đề để xử lý."),
+            )
+            return False
+
+        current_row = self._entry_list.currentRow()
+        if current_row < 0 or current_row >= len(self._entry_row_keys):
+            current_row = 0
+            self._entry_list.setCurrentRow(current_row)
+        self._app_controller.select_subtitle_segment(self._entry_row_keys[current_row], 0)
+        return True
+
+    def _on_filter_ocr_clicked(self) -> None:
+        if not self._ensure_subtitle_selected():
+            return
+        self._app_controller.request_subtitle_quality_filter("ocr")
+
+    def _on_filter_duplicate_clicked(self) -> None:
+        if not self._ensure_subtitle_selected():
+            return
+        self._app_controller.request_subtitle_quality_filter("duplicate")
+
+    def _on_remove_interjection_clicked(self) -> None:
+        if not self._ensure_subtitle_selected():
+            return
+        self._app_controller.request_subtitle_interjection_cleanup()
 
     def _sync_selection_from_controller(self) -> None:
         selected = self._app_controller.selected_subtitle_segment()

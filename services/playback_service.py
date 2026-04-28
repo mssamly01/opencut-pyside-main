@@ -14,6 +14,7 @@ from app.infrastructure.ffmpeg_gateway import FFmpegGateway
 from app.infrastructure.video_decoder import VideoDecoder
 from app.services.export_service import ExportService
 from app.services.keyframe_evaluator import clip_has_keyframes
+from app.services.memory_guard import MemoryGuard
 
 
 @dataclass(slots=True, frozen=True)
@@ -32,9 +33,11 @@ class PlaybackService:
         self,
         ffmpeg_gateway: FFmpegGateway | None = None,
         video_decoder: VideoDecoder | None = None,
+        memory_guard: MemoryGuard | None = None,
     ) -> None:
         self._ffmpeg_gateway = ffmpeg_gateway or FFmpegGateway()
         self._video_decoder = video_decoder or VideoDecoder(ffmpeg_gateway=self._ffmpeg_gateway, max_cache_entries=420)
+        self._memory_guard = memory_guard or MemoryGuard()
         self._image_bytes_cache: dict[str, bytes] = {}
 
     def get_preview_frame(
@@ -43,6 +46,10 @@ class PlaybackService:
         time_seconds: float,
         project_path: str | None = None,
     ) -> PreviewFrameResult:
+        # Run before the cache lookup: if RAM is tight, drop oldest frames so
+        # the next decode/prefetch doesn't push us further into pressure.
+        self._memory_guard.maybe_shrink(self._video_decoder)
+
         if project is None:
             return PreviewFrameResult(frame_bytes=None, message="No project loaded")
 

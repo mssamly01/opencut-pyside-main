@@ -12,6 +12,7 @@ from PySide6.QtCore import QCoreApplication, QSize, Qt, QUrl
 from PySide6.QtGui import QAction, QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (
     QFileDialog,
+    QHBoxLayout,
     QLabel,
     QListWidgetItem,
     QMenu,
@@ -40,27 +41,51 @@ class AudioPanel(QWidget):
         waveform_loader: WaveformLoader | None = None,
         timeline_controller: TimelineController | None = None,
         parent: QWidget | None = None,
+        *,
+        embedded: bool = False,
     ) -> None:
         super().__init__(parent)
         self._project_controller = project_controller
         self._waveform_loader = waveform_loader
         self._timeline_controller = timeline_controller
+        self._embedded = bool(embedded)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(6)
+        if self._embedded:
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(0)
+        else:
+            layout.setContentsMargins(8, 8, 8, 8)
+            layout.setSpacing(6)
 
-        header = QLabel(self.tr("Âm thanh"), self)
-        header.setStyleSheet("font-weight: 600; color: #e6edf3; padding: 2px 0;")
-        layout.addWidget(header)
+        if not self._embedded:
+            header = QLabel(self.tr("Âm thanh"), self)
+            header.setStyleSheet("font-weight: 600; color: #e6edf3; padding: 2px 0;")
+            layout.addWidget(header)
 
         self.import_button = QPushButton(self.tr("Nhập âm thanh..."), self)
+        if self._embedded:
+            self.import_button.setObjectName("captions_import_action_button")
         self.import_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.import_button.clicked.connect(self._on_import_clicked)
-        layout.addWidget(self.import_button)
+        if self._embedded:
+            top_row = QHBoxLayout()
+            top_row.setContentsMargins(0, 0, 0, 0)
+            top_row.setSpacing(6)
+            header = QLabel(self.tr("Tất cả"), self)
+            header.setObjectName("captions_content_title")
+            top_row.addWidget(header)
+            top_row.addStretch(1)
+            top_row.addWidget(self.import_button)
+            layout.addLayout(top_row)
+            layout.addSpacing(12)
+        else:
+            layout.addWidget(self.import_button)
 
         self.media_list = MediaListWidget(self)
-        self.media_list.setAlternatingRowColors(True)
+        if self._embedded:
+            self.media_list.setObjectName("captions_entry_list")
+        self.media_list.setAlternatingRowColors(not self._embedded)
         self.media_list.setWordWrap(True)
         self.media_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.media_list.customContextMenuRequested.connect(self._on_context_menu_requested)
@@ -69,6 +94,10 @@ class AudioPanel(QWidget):
         self._project_controller.project_changed.connect(self._refresh_media_items)
         self._project_controller.media_assets_changed.connect(self._refresh_media_items)
         self._refresh_media_items()
+
+
+    def open_import_dialog(self) -> None:
+        self._on_import_clicked()
 
     def _on_import_clicked(self) -> None:
         selected_paths, _ = QFileDialog.getOpenFileNames(
