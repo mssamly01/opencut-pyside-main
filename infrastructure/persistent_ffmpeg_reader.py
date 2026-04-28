@@ -206,21 +206,42 @@ class _PersistentFrameReader:
 class PersistentFFmpegFramePool:
     """Pool of persistent ffmpeg readers keyed by (media, fps, filter, dims).
 
-    Reuses a live reader when the next request asks for its very next
-    sequential frame; otherwise terminates and respawns at the new
-    position. Capped at ``max_active`` live readers (LRU-evicted) to
-    bound memory and file-descriptor usage.
+    The pool now keeps **multiple** readers per ``base_key`` (up to
+    ``max_per_key``) so scrub-heavy access can hit a recently warmed
+    reader without paying the ~80 ms ffmpeg respawn cost on every
+    backward seek. Selection order:
+
+      1. Exact match: a reader whose ``next_frame_index`` equals the
+         requested start frame is reused (sequential continuation).
+      2. Forward-skip match: among readers positioned just before the
+         requested start, pick the closest one and discard up to
+         ``skip_budget_frames`` frames to align it. Reading and
+         dropping a few frames over the raw-BGRA pipe is significantly
+         cheaper than respawning ffmpeg for small gaps.
+      3. Spawn fresh: if no candidate is reusable the pool spawns a
+         new reader. When the per-key cap is reached the LRU reader
+         under that key is evicted first; the global ``max_active``
+         cap still applies as a hard upper bound.
+
+    Internally the OrderedDict is keyed by ``(*base_key, reader_id)``
+    so multiple readers can coexist under the same base_key while
+    OrderedDict's recency ordering still drives LRU eviction.
     """
 
     def __init__(
         self,
         ffmpeg_gateway: FFmpegGateway | None = None,
-        max_active: int = 2,
+        max_active: int = 6,
+        max_per_key: int = 3,
+        skip_budget_frames: int = 4,
     ) -> None:
         self._gateway = ffmpeg_gateway or FFmpegGateway()
         self._max_active = max(1, int(max_active))
+        self._max_per_key = max(1, int(max_per_key))
+        self._skip_budget_frames = max(0, int(skip_budget_frames))
         self._lock = threading.Lock()
         self._readers: OrderedDict[tuple, _PersistentFrameReader] = OrderedDict()
+        self._next_reader_id = 0
         # Files for which hwaccel decoding has been observed to fail. Once a
         # file lands here we always spawn the reader without -hwaccel.
         self._sw_only_paths: set[str] = set()
@@ -338,15 +359,32 @@ class PersistentFFmpegFramePool:
         accel = self._gateway._resolved_hwaccel_args() if allow_hwaccel else []
         results: list[tuple[int, bytes]] = []
 
-        reader = self._readers.get(key)
-        reuse = reader is not None and reader.is_alive() and reader.next_frame_index == start_frame_index
-        if not reuse and reader is not None:
-            reader.close()
-            self._readers.pop(key, None)
-            reader = None
+        chosen_full_key, chosen_reader, skip_count = self._select_reuse_locked(
+            base_key=key, start_frame_index=start_frame_index
+        )
+        spawned_fresh = False
 
-        if reader is None:
-            reader = _PersistentFrameReader(
+        if chosen_reader is not None:
+            assert chosen_full_key is not None
+            self._readers.move_to_end(chosen_full_key)
+            for _ in range(skip_count):
+                discard = chosen_reader.read_next()
+                if discard is None:
+                    # The reader died mid-skip; drop it and fall through to
+                    # the spawn path below.
+                    chosen_reader.close()
+                    self._readers.pop(chosen_full_key, None)
+                    chosen_reader = None
+                    chosen_full_key = None
+                    break
+
+        if chosen_reader is None:
+            # Make room for a fresh reader under this base_key first, then
+            # respect the global cap.
+            self._evict_per_key_locked(base_key=key)
+            full_key = (*key, self._next_reader_id)
+            self._next_reader_id += 1
+            chosen_reader = _PersistentFrameReader(
                 ffmpeg_executable=ffmpeg_executable,
                 media_path=resolved_path,
                 fps=fps,
@@ -356,32 +394,75 @@ class PersistentFFmpegFramePool:
                 extra_video_filters=extra_video_filters,
                 hwaccel_args=accel,
             )
-            if not reader.is_alive():
-                reader.close()
+            if not chosen_reader.is_alive():
+                chosen_reader.close()
                 return [], bool(accel)
-            self._readers[key] = reader
-            self._evict_overflow_locked(except_key=key)
-        else:
-            self._readers.move_to_end(key)
+            self._readers[full_key] = chosen_reader
+            self._evict_overflow_locked(except_key=full_key)
+            chosen_full_key = full_key
+            spawned_fresh = True
 
-        first_attempt = reader.next_frame_index == start_frame_index and not reuse
         for _ in range(frame_count):
-            frame_index = reader.next_frame_index
-            payload = reader.read_next()
+            frame_index = chosen_reader.next_frame_index
+            payload = chosen_reader.read_next()
             if payload is None:
-                reader.close()
-                self._readers.pop(key, None)
+                chosen_reader.close()
+                if chosen_full_key is not None:
+                    self._readers.pop(chosen_full_key, None)
                 # Treat "fresh hwaccel reader produced zero frames" as a
                 # decoder-unsupported signal. Reuse paths or partial reads
                 # do NOT fall back: those typically mean EOF or a transient
                 # process exit, not a codec mismatch.
-                if first_attempt and reader.used_hwaccel and not results:
+                if spawned_fresh and chosen_reader.used_hwaccel and not results:
                     return [], True
                 break
             results.append((frame_index, payload))
-            first_attempt = False
 
         return results, False
+
+    def _select_reuse_locked(
+        self, base_key: tuple, start_frame_index: int
+    ) -> tuple[tuple | None, _PersistentFrameReader | None, int]:
+        """Pick the cheapest reusable reader under ``base_key``.
+
+        Returns ``(full_key, reader, skip_count)``. ``skip_count`` is
+        the number of frames to discard from the chosen reader before
+        emitting useful payloads (0 for an exact match).
+        """
+
+        exact: tuple | None = None
+        best: tuple | None = None
+        best_gap = self._skip_budget_frames + 1
+        for full_key, reader in self._readers.items():
+            if full_key[:5] != base_key:
+                continue
+            if not reader.is_alive():
+                continue
+            gap = start_frame_index - reader.next_frame_index
+            if gap == 0:
+                exact = (full_key, reader, 0)
+                break
+            if 0 < gap <= self._skip_budget_frames and gap < best_gap:
+                best = (full_key, reader, gap)
+                best_gap = gap
+        chosen = exact or best
+        if chosen is None:
+            return None, None, 0
+        return chosen
+
+    def _evict_per_key_locked(self, base_key: tuple) -> None:
+        """Drop the LRU reader under ``base_key`` if the per-key cap is full."""
+
+        peers: list[tuple] = [
+            full_key for full_key in self._readers if full_key[:5] == base_key
+        ]
+        if len(peers) < self._max_per_key:
+            return
+        # OrderedDict iterates oldest-first, so peers[0] is the LRU candidate
+        # under this base_key.
+        evict_key = peers[0]
+        self._readers[evict_key].close()
+        self._readers.pop(evict_key, None)
 
     def _evict_overflow_locked(self, except_key: tuple | None) -> None:
         while len(self._readers) > self._max_active:
