@@ -113,13 +113,13 @@ class CaptionsPanel(QWidget):
         self._entry_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._entry_list.customContextMenuRequested.connect(self._on_context_menu_requested)
         import_layout.addWidget(self._entry_list, 1)
-        
+
         # Placeholder label inside the list's viewport
         self.placeholder_label = QLabel(self.tr("Chưa nhập phụ đề"), self._entry_list.viewport())
         self.placeholder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.placeholder_label.setStyleSheet("color: gray; background-color: transparent;")
         self.placeholder_label.setVisible(False)
-        
+
         # Center the label when the list is resized
         self._entry_list.viewport().installEventFilter(self)
 
@@ -181,7 +181,7 @@ class CaptionsPanel(QWidget):
                 return True
         elif watched is self._entry_list.viewport() and event.type() == QEvent.Type.Resize:
             self.placeholder_label.resize(event.size())
-            
+
         return super().eventFilter(watched, event)
 
     def _set_nav_mode(self, mode: str) -> None:
@@ -208,7 +208,7 @@ class CaptionsPanel(QWidget):
         try:
             self._entry_list.clear()
             self._entry_row_keys = []
-            
+
             entries = list(self._app_controller.subtitle_library_entries())
             if not entries:
                 self.placeholder_label.setVisible(True)

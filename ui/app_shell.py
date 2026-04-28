@@ -9,7 +9,7 @@ from app.ui.sidebar.left_sidebar_stack import LeftSidebarStack
 from app.ui.timeline.timeline_toolbar import TimelineToolbar
 from app.ui.timeline.timeline_view import TimelineView
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtWidgets import QLabel, QFrame, QHBoxLayout, QScrollArea, QSplitter, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QScrollArea, QSplitter, QToolButton, QVBoxLayout, QWidget
 
 
 class AppShell(QWidget):
