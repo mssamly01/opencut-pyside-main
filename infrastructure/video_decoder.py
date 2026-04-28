@@ -5,6 +5,7 @@ from collections import OrderedDict
 from dataclasses import dataclass
 
 from app.infrastructure.ffmpeg_gateway import FFmpegGateway
+from app.infrastructure.persistent_ffmpeg_reader import PersistentFFmpegFramePool
 
 
 @dataclass(slots=True, frozen=True)
@@ -28,9 +29,11 @@ class VideoDecoder:
         self,
         ffmpeg_gateway: FFmpegGateway | None = None,
         max_cache_entries: int = 360,
+        frame_pool: PersistentFFmpegFramePool | None = None,
     ) -> None:
         self._ffmpeg_gateway = ffmpeg_gateway or FFmpegGateway()
         self._max_cache_entries = max(60, max_cache_entries)
+        self._frame_pool = frame_pool
         # Cache key: (media_path, fps_token, frame_index, filter_token).
         self._frame_cache: OrderedDict[tuple[str, int, int, str], bytes] = OrderedDict()
         # Prefetch tracking: max frame index reached per (media_path, fps_token, filter_token).
@@ -81,29 +84,44 @@ class VideoDecoder:
         frame_count: int,
         media_duration_seconds: float | None,
         extra_video_filters: list[str] | None = None,
+        frame_dimensions: tuple[int, int] | None = None,
     ) -> list[DecodedFrame]:
         safe_fps = fps if fps > 0 else 30.0
         safe_start = max(0, int(start_frame_index))
         safe_count = max(1, int(frame_count))
 
         max_frame_index = self._max_frame_index_for_duration(media_duration_seconds, safe_fps)
-        start_time_seconds = safe_start / safe_fps
-        sequence = self._ffmpeg_gateway.extract_frame_sequence_png(
-            file_path=media_path,
-            start_time_seconds=start_time_seconds,
-            fps=safe_fps,
-            frame_count=safe_count,
-            extra_video_filters=extra_video_filters,
-        )
-        if not sequence:
-            return []
 
         decoded_frames: list[DecodedFrame] = []
-        for offset, payload in enumerate(sequence):
-            frame_index = safe_start + offset
-            if max_frame_index is not None and frame_index > max_frame_index:
-                break
-            decoded_frames.append(DecodedFrame(frame_index=frame_index, payload=payload))
+        pool_frames = self._read_from_pool(
+            media_path=media_path,
+            fps=safe_fps,
+            start_frame_index=safe_start,
+            frame_count=safe_count,
+            frame_dimensions=frame_dimensions,
+            extra_video_filters=extra_video_filters,
+        )
+        if pool_frames:
+            for frame_index, payload in pool_frames:
+                if max_frame_index is not None and frame_index > max_frame_index:
+                    break
+                decoded_frames.append(DecodedFrame(frame_index=frame_index, payload=payload))
+        else:
+            start_time_seconds = safe_start / safe_fps
+            sequence = self._ffmpeg_gateway.extract_frame_sequence_png(
+                file_path=media_path,
+                start_time_seconds=start_time_seconds,
+                fps=safe_fps,
+                frame_count=safe_count,
+                extra_video_filters=extra_video_filters,
+            )
+            if not sequence:
+                return []
+            for offset, payload in enumerate(sequence):
+                frame_index = safe_start + offset
+                if max_frame_index is not None and frame_index > max_frame_index:
+                    break
+                decoded_frames.append(DecodedFrame(frame_index=frame_index, payload=payload))
 
         if not decoded_frames:
             return []
@@ -186,6 +204,31 @@ class VideoDecoder:
     ) -> tuple[str, int, str]:
         fps_token = int(round(max(1.0, fps) * 1000.0))
         return (media_path, fps_token, _filter_token(extra_video_filters))
+
+    def _read_from_pool(
+        self,
+        media_path: str,
+        fps: float,
+        start_frame_index: int,
+        frame_count: int,
+        frame_dimensions: tuple[int, int] | None,
+        extra_video_filters: list[str] | None,
+    ) -> list[tuple[int, bytes]]:
+        if self._frame_pool is None or frame_dimensions is None:
+            return []
+        width, height = frame_dimensions
+        if width <= 0 or height <= 0:
+            return []
+        return self._frame_pool.read_frames(
+            media_path=media_path,
+            fps=fps,
+            start_frame_index=start_frame_index,
+            frame_count=frame_count,
+            width=int(width),
+            height=int(height),
+            extra_video_filters=extra_video_filters,
+            filter_token=_filter_token(extra_video_filters),
+        )
 
     @staticmethod
     def _max_frame_index_for_duration(media_duration_seconds: float | None, fps: float) -> int | None:
