@@ -75,6 +75,12 @@ class ClipItem(QGraphicsRectItem):
         self._refresh_thumbnail_pixmaps()
         self.update()
 
+    def set_waveform_peaks(self, peaks: list[float]) -> None:
+        """Replace the waveform peaks (used by the async waveform loader)."""
+
+        self._waveform_peaks = [max(0.0, min(float(value), 1.0)) for value in (peaks or [])]
+        self.update()
+
     def set_display_geometry(self, scene_x: float, width: float) -> None:
         clamped_width = max(1.0, width)
         self.setPos(scene_x, self.scenePos().y())
